@@ -4,7 +4,7 @@
 
 A modern chat interface application with **Ollama AI integration**, built with **el.js** - a lightweight, chainable DOM manipulation library. Features WhatsApp-inspired design, persistent conversation history, and optimized context management for fast AI responses.
 
-![Chat UI Preview](image/chat-ui.png)
+![Chat UI Preview](image/chat-ui-ollama.png)
 
 ## 📝 About
 
