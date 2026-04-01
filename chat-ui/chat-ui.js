@@ -190,13 +190,12 @@ const ChatUI = function(config = {}) {
             'border-top': '1px solid #e0e0e0',
             'display': 'flex',
             'gap': '10px',
-            'align-items': 'center',
+            'align-items': 'flex-end',
             'flex-shrink': '0'
         });
 
-    const messageInput = el('input')
-        .type('text')
-        .placeholder('Type your message...')
+    const messageInput = el('textarea')
+        .placeholder('Type your message... (Shift+Enter untuk baris baru)')
         .css({
             'flex': '1',
             'padding': '12px 16px',
@@ -204,7 +203,10 @@ const ChatUI = function(config = {}) {
             'border-radius': '24px',
             'font-size': '15px',
             'outline': 'none',
-            'transition': 'border-color 0.3s'
+            'transition': 'border-color 0.3s',
+            'min-height': '48px',
+            'max-height': '140px',
+            'resize': 'vertical'
         })
         .focus(function() {
             this.style.borderColor = colors.primaryColor;
@@ -213,7 +215,8 @@ const ChatUI = function(config = {}) {
             this.style.borderColor = '#e0e0e0';
         })
         .keydown(function(e) {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
                 sendMessage();
             }
         });
@@ -265,6 +268,114 @@ const ChatUI = function(config = {}) {
 
     typingIndicator.child(typingDots);
 
+    function copyTextToClipboard(text) {
+        if (!navigator.clipboard) {
+            return Promise.reject(new Error('Clipboard API not supported'));
+        }
+        return navigator.clipboard.writeText(text);
+    }
+
+    function showInlineToast(message, duration = 2200) {
+        const toastEl = el('div')
+            .text(message)
+            .css({
+                'position': 'fixed',
+                'bottom': '24px',
+                'left': '50%',
+                'transform': 'translateX(-50%)',
+                'padding': '10px 16px',
+                'background': 'rgba(33,33,33,0.92)',
+                'color': '#fff',
+                'border-radius': '999px',
+                'font-size': '13px',
+                'z-index': '10001',
+                'opacity': '0',
+                'transition': 'opacity 0.2s ease'
+            });
+
+        document.body.appendChild(toastEl.get());
+        requestAnimationFrame(() => { toastEl.el.style.opacity = '1'; });
+        setTimeout(() => {
+            toastEl.el.style.opacity = '0';
+            setTimeout(() => {
+                if (toastEl.el.parentNode) toastEl.el.parentNode.removeChild(toastEl.el);
+            }, 220);
+        }, duration);
+    }
+
+    function renderTextWithCode(text, message) {
+        const wrapper = el('div').css({ 'display': 'flex', 'flex-direction': 'column', 'gap': '12px' });
+        const codeRegex = /```(\w+)?\n([\s\S]*?)```/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = codeRegex.exec(text)) !== null) {
+            const beforeText = text.slice(lastIndex, match.index);
+            if (beforeText) {
+                wrapper.child(
+                    el('div')
+                        .css({ 'white-space': 'pre-wrap', 'line-height': '1.6', 'color': message.isUser ? '#000' : '#333' })
+                        .text(beforeText)
+                );
+            }
+
+            const codeText = match[2];
+            const codeBlock = el('div').css({ 'position': 'relative', 'margin-top': '8px' });
+            const pre = el('pre').css({
+                'margin': '0',
+                'padding': '14px',
+                'background': '#1e1e1e',
+                'color': '#f8f8f2',
+                'border-radius': '14px',
+                'overflow-x': 'auto',
+                'font-family': 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                'font-size': '13px',
+                'line-height': '1.5'
+            });
+            pre.child(
+                el('code').text(codeText)
+            );
+
+            const copyBtn = el('button')
+                .text('Copy')
+                .css({
+                    'position': 'absolute',
+                    'top': '10px',
+                    'right': '10px',
+                    'padding': '6px 10px',
+                    'font-size': '12px',
+                    'color': '#111',
+                    'background': '#f2f2f2',
+                    'border': 'none',
+                    'border-radius': '999px',
+                    'cursor': 'pointer'
+                })
+                .click(async function() {
+                    try {
+                        await copyTextToClipboard(codeText);
+                        showInlineToast('Code copied to clipboard');
+                    } catch (err) {
+                        showInlineToast('Copy failed', 2600);
+                    }
+                });
+
+            codeBlock.child([pre, copyBtn]);
+            wrapper.child(codeBlock);
+            lastIndex = codeRegex.lastIndex;
+        }
+
+        const restText = text.slice(lastIndex);
+        if (restText) {
+            wrapper.child(
+                el('div')
+                    .css({ 'white-space': 'pre-wrap', 'line-height': '1.6', 'color': message.isUser ? '#000' : '#333' })
+                    .text(restText)
+            );
+        }
+
+        return wrapper;
+    }
+
     // Function to create a message bubble using el.js patterns
     function createMessageBubble(message) {
         const messageWrapper = el('div')
@@ -293,6 +404,9 @@ const ChatUI = function(config = {}) {
         } else if (message.html) {
             // If message has HTML, render as HTML
             messageContent.html(message.html);
+        } else if (typeof message.text === 'string' && /```/.test(message.text)) {
+            // Render code blocks with a copy button
+            messageContent.child(renderTextWithCode(message.text, message));
         } else {
             // Default: render as text
             messageContent.text(message.text);

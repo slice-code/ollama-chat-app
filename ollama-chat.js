@@ -61,17 +61,242 @@ export default function OllamaChat() {
         background: rgba(0,0,0,0.3);
       }
       
+      #mobile-menu-button {
+        display: none;
+      }
+
+      #sidebar-overlay {
+        display: none;
+      }
+      #sidebar-overlay.visible {
+        display: block;
+      }
+
       @media (max-width: 768px) {
-        #sidebar {
-          display: none !important;
+        #mobile-menu-button {
+          display: flex;
+          position: absolute;
+          top: 22px;
+          right: 16px;
+          z-index: 1002;
+          background: #075E54;
+          color: white;
+          border: none;
+          border-radius: 999px;
+          padding: 10px 14px;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 14px;
         }
+
+        #sidebar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          width: 80%;
+          max-width: 320px;
+          transform: translateX(-100%);
+          transition: transform 0.25s ease;
+          box-shadow: 2px 0 20px rgba(0,0,0,0.16);
+          z-index: 1001;
+          background: #ffffff;
+          display: flex !important;
+          visibility: hidden;
+        }
+
+        #sidebar.open {
+          transform: translateX(0);
+          visibility: visible;
+        }
+
         #container {
           flex-direction: column;
+        }
+
+        #sidebar-overlay {
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.35);
+          z-index: 1000;
+        }
+
+        #sidebar-overlay.visible {
+          display: block;
         }
       }
     `);
 
   document.head.appendChild(styleEl.get());
+
+  const sidebarOverlay = el('div')
+    .id('sidebar-overlay')
+    .click(function() {
+      toggleMobileSidebar(false);
+    });
+
+  document.body.appendChild(sidebarOverlay.get());
+
+  let dialogConfirmCallback = null;
+
+  const dialogOverlay = el('div')
+    .id('dialog-overlay')
+    .css({
+      'display': 'none',
+      'position': 'fixed',
+      'inset': '0',
+      'background': 'rgba(0,0,0,0.45)',
+      'align-items': 'center',
+      'justify-content': 'center',
+      'z-index': '1004'
+    });
+
+  const dialogBox = el('div')
+    .css({
+      'width': '92%',
+      'max-width': '380px',
+      'background': 'white',
+      'border-radius': '18px',
+      'padding': '24px',
+      'box-shadow': '0 20px 50px rgba(0,0,0,0.18)',
+      'text-align': 'left'
+    });
+
+  const dialogTitle = el('h3')
+    .text('Confirm')
+    .css({
+      'margin': '0 0 12px 0',
+      'font-size': '18px',
+      'color': '#111'
+    });
+
+  const dialogMessage = el('p')
+    .text('Are you sure?')
+    .css({
+      'margin': '0',
+      'color': '#444',
+      'line-height': '1.6'
+    });
+
+  const dialogActions = el('div')
+    .css({
+      'margin-top': '22px',
+      'display': 'flex',
+      'justify-content': 'flex-end',
+      'gap': '10px'
+    });
+
+  const cancelDialogBtn = el('button')
+    .text('Cancel')
+    .css({
+      'padding': '10px 14px',
+      'border': '1px solid #ccc',
+      'background': 'white',
+      'color': '#333',
+      'border-radius': '10px',
+      'cursor': 'pointer'
+    })
+    .click(function() {
+      hideDialog();
+    });
+
+  const confirmDialogBtn = el('button')
+    .text('Delete')
+    .css({
+      'padding': '10px 14px',
+      'border': 'none',
+      'background': '#ff4444',
+      'color': 'white',
+      'border-radius': '10px',
+      'cursor': 'pointer'
+    })
+    .click(async function() {
+      const callback = dialogConfirmCallback;
+      hideDialog();
+      if (callback) {
+        await callback();
+      }
+    });
+
+  dialogActions.child([cancelDialogBtn, confirmDialogBtn]);
+  dialogBox.child([dialogTitle, dialogMessage, dialogActions]);
+  dialogOverlay.child(dialogBox);
+  document.body.appendChild(dialogOverlay.get());
+
+  dialogOverlay.el.addEventListener('click', function(event) {
+    if (event.target === dialogOverlay.el) {
+      hideDialog();
+    }
+  });
+
+  const toastContainer = el('div')
+    .id('toast-container')
+    .css({
+      'position': 'fixed',
+      'bottom': '22px',
+      'right': '22px',
+      'display': 'flex',
+      'flex-direction': 'column',
+      'gap': '10px',
+      'z-index': '1005',
+      'pointer-events': 'none'
+    });
+
+  document.body.appendChild(toastContainer.get());
+
+  function showToast(message, type = 'info') {
+    const toast = el('div')
+      .text(message)
+      .css({
+        'padding': '12px 16px',
+        'border-radius': '12px',
+        'color': 'white',
+        'font-size': '14px',
+        'background': type === 'success' ? '#00A884' : type === 'error' ? '#ff4444' : '#333',
+        'box-shadow': '0 12px 30px rgba(0,0,0,0.18)',
+        'opacity': '0',
+        'transition': 'opacity 0.2s ease'
+      });
+
+    toastContainer.el.appendChild(toast.get());
+    setTimeout(() => {
+      toast.el.style.opacity = '1';
+    }, 10);
+
+    setTimeout(() => {
+      toast.el.style.opacity = '0';
+      setTimeout(() => {
+        if (toast.el.parentNode) {
+          toast.el.parentNode.removeChild(toast.el);
+        }
+      }, 200);
+    }, 2600);
+  }
+
+  function showDialog(title, message, onConfirm) {
+    dialogTitle.text(title);
+    dialogMessage.text(message);
+    dialogConfirmCallback = onConfirm;
+    dialogOverlay.el.style.display = 'flex';
+  }
+
+  function hideDialog() {
+    dialogOverlay.el.style.display = 'none';
+    dialogConfirmCallback = null;
+  }
+
+  function toggleMobileSidebar(show) {
+    if (show) {
+      sidebar.el.classList.add('open');
+      sidebarOverlay.el.classList.add('visible');
+    } else {
+      sidebar.el.classList.remove('open');
+      sidebarOverlay.el.classList.remove('visible');
+    }
+  }
 
   // Sidebar header
   const sidebarHeader = el('div')
@@ -230,6 +455,9 @@ export default function OllamaChat() {
       
       // Re-render chat history list to update highlight
       await loadChatHistory();
+      
+      // Hide mobile sidebar after creating a new chat
+      toggleMobileSidebar(false);
       
       console.log('✅ New chat session created:', newSessionId);
     })
@@ -427,6 +655,8 @@ export default function OllamaChat() {
     } finally {
       // Re-render chat history list to update highlight AFTER everything is loaded
       await loadChatHistory();
+      // Hide mobile sidebar after selection
+      toggleMobileSidebar(false);
       // Reset loading flag
       isLoadingSession = false;
     }
@@ -555,52 +785,53 @@ export default function OllamaChat() {
             )
             .click(async function(e) {
               e.stopPropagation(); // Prevent triggering the chat item click
-              
-              if (!confirm(`Delete "${session.title || 'Untitled Chat'}"?\n\nThis will permanently delete all messages in this conversation.`)) {
-                return;
-              }
-              
-              try {
-                console.log('🗑️ Deleting session:', session.session_id);
-                
-                const response = await fetch(`/api/conversations/${session.session_id}`, {
-                  method: 'DELETE'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                  console.log('✅ Session deleted:', session.session_id);
-                  
-                  // If this was the active session, reset to new session
-                  if (session.session_id === currentSessionId) {
-                    const newSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                    localStorage.setItem('chat_session_id', newSessionId);
-                    currentSessionId = newSessionId;
-                    sessionInDb = false;
-                    
-                    // Clear chat UI
-                    if (chatInstance && chatInstance.resetMessages) {
-                      chatInstance.resetMessages();
+
+              showDialog(
+                'Delete Chat?',
+                `Delete "${session.title || 'Untitled Chat'}"? This will permanently delete all messages in this conversation.`,
+                async function() {
+                  try {
+                    console.log('🗑️ Deleting session:', session.session_id);
+
+                    const response = await fetch(`/api/conversations/${session.session_id}`, {
+                      method: 'DELETE'
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                      console.log('✅ Session deleted:', session.session_id);
+
+                      // If this was the active session, reset to new session
+                      if (session.session_id === currentSessionId) {
+                        const newSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                        localStorage.setItem('chat_session_id', newSessionId);
+                        currentSessionId = newSessionId;
+                        sessionInDb = false;
+
+                        // Clear chat UI
+                        if (chatInstance && chatInstance.resetMessages) {
+                          chatInstance.resetMessages();
+                        }
+                        conversationHistory = [];
+                        conversationSummary = '';
+                        isFirstMessageInSession = true;
+
+                        console.log('🆕 Created new session after deletion');
+                      }
+
+                      // Reload history list
+                      await loadChatHistory();
+                      showToast('Chat deleted successfully!', 'success');
+                    } else {
+                      throw new Error('Failed to delete session');
                     }
-                    conversationHistory = [];
-                    conversationSummary = '';
-                    isFirstMessageInSession = true;
-                    
-                    console.log('🆕 Created new session after deletion');
+                  } catch (error) {
+                    console.error('❌ Failed to delete session:', error);
+                    showToast('Failed to delete chat. Please try again.', 'error');
                   }
-                  
-                  // Reload history list
-                  await loadChatHistory();
-                  
-                  alert('Chat deleted successfully!');
-                } else {
-                  throw new Error('Failed to delete session');
                 }
-              } catch (error) {
-                console.error('❌ Failed to delete session:', error);
-                alert('Failed to delete chat. Please try again.');
-              }
+              );
             });
 
           itemMeta.child([messageCount, itemTime, deleteBtn]);
@@ -632,10 +863,21 @@ export default function OllamaChat() {
     'overflow': 'hidden',
     'background': '#f5f5f5',
     'display': 'flex',
-    'flex-direction': 'column'
+    'flex-direction': 'column',
+    'position': 'relative'
   })
 
   sidebar.child([sidebarHeader, chatList])
+
+  const mobileMenuBtn = el('button')
+    .id('mobile-menu-button')
+    .text('☰ Menu')
+    .click(function() {
+      const isOpen = sidebar.el.classList.contains('open');
+      toggleMobileSidebar(!isOpen);
+    });
+
+  chatContainer.child(mobileMenuBtn);
 
   // Append sidebar and chatContainer to main container
   container.child([sidebar, chatContainer])
@@ -825,6 +1067,38 @@ export default function OllamaChat() {
     return fullContext;
   }
 
+  const eljsSystemPrompt = `You are qwen-el, an assistant that understands el.js and the code in this repository.
+Only provide el.js code when the user explicitly requests UI implementation, component construction, or asks to make UI with el.js.
+For general conversation, greetings, or normal user questions, answer naturally in plain language without code.
+Do not output code unless the user explicitly asks for it.
+Do not invent any el.js methods that are not in the provided reference.
+If you need to add classes, use .class('...') rather than .addClass('...').
+
+Use only these el.js capabilities:
+- Wrapper creation: el('tag') creates a new element wrapper.
+- Wrapper fields: .el is the raw DOM node, .ch is the queued child array.
+- Text / HTML: .text('text'), .textContent('text'), .html('<b>...</b>')
+- Attributes: .id(), .name(), .href(), .rel(), .type(), .src(), .placeholder(), .required(), .disabled(), .checked(), .draggable(), .data(name, value), .aria(name, value)
+- Styling: .css({ ... }), .style({ ... }), and these shortcuts:
+  .width(), .height(), .margin(), .padding(), .border(), .borderTop(), .borderBottom(), .borderLeft(), .borderRight(), .radius(), .background(), .backgroundImage(), .backgroundSize(), .backgroundRepeat(), .backgroundPosition(), .color(), .font(), .fontWeight(), .align(), .size(), .display(), .flex(), .grid(), .justify(), .items(), .self(), .gap(), .wrap(), .cursor(), .opacity(), .zIndex(), .overflow(), .overflowX(), .overflowY(), .boxShadow(), .transform(), .transition(), .lineHeight(), .maxWidth(), .maxHeight(), .minWidth(), .minHeight(), .outline()
+- Class helpers: .class('a b'), .clearClass(), .removeClass('a'), .toggleClass('a'), .hasClass('a')
+- Event helpers: .on(event, fn), .click(fn), .hover(enterFn, leaveFn), .change(fn), .keydown(fn), .keyup(fn), .keypress(fn), .input(fn), .paste(fn), .focus(fn), .blur(fn), .submit(fn), .mouseover(fn), .mouseout(fn), .mousedown(fn), .mouseup(fn), .touchstart(fn), .touchend(fn), .touchmove(fn), .dblclick(fn), .contextmenu(fn), .wheel(fn), .scroll(fn), .resize(fn), .load(fn), .loopFunc(callback, time)
+- DOM helpers: .child(child), .child([child1, child2]), .prepend(child), .remove(), .replace(child), .off(event, fn), .selectAll(), .scrollTo(x, y), .scrollIntoView(options), .empty(), .attrRemove(name), .styleRemove(name), .cssText(text)
+- Value getters: .getValue(), .getVal(), .getText(), .getHtml(), .getAttr(name), .getData(name), .getStyle(name), .getParent(), .getChildren(), .getSiblings(), .getIndex(), .getWidth(), .getHeight()
+- Traversal: .find(selector), .findAll(selector), .closest(selector), .next(), .prev(), .first(), .last(), .eq(index)
+- Linking: .link(obj, name) stores the wrapper's actual DOM node in obj[name].
+- Get behavior: .get() appends queued children from .ch into .el and returns the raw DOM node. Do not call el.js wrapper methods after .get().
+
+Examples of valid el.js usage:
+- const button = el('button').text('Click me').css({ background: '#4CAF50' }).click(() => alert('clicked'));
+  document.body.appendChild(button.get());
+
+Examples of invalid usage to avoid:
+- document.body.appendChild(button.get());
+  button.get().click(() => alert('clicked'));
+
+Answer with valid el.js code only when the user requests UI code. Otherwise answer in plain language.`;
+
   // Initialize ChatUI
   const chatInstance = ChatUI({
     type: 'full',
@@ -877,8 +1151,9 @@ export default function OllamaChat() {
         console.log('📚 Context messages preview:', contextMessages.slice(-2));
       }
       
-      // Add current message
+      // Add system prompt and current message
       const messagesPayload = [
+        { role: 'system', content: eljsSystemPrompt },
         ...contextMessages,
         { role: 'user', content: message }
       ];
