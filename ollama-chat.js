@@ -40,11 +40,18 @@ export default function OllamaChat(config = {}) {
   el(document.body).css({
     'margin': '0',
     'padding': '0',
+    'width': '100%',
     'height': '100dvh',
     'min-height': '100dvh',
+    'overflow': 'hidden',
     'font-family': 'Arial, sans-serif',
     'background': '#e5e5e5'
   }).get()
+
+  _app.style.width = '100%';
+  _app.style.height = '100dvh';
+  _app.style.minHeight = '100dvh';
+  _app.style.overflow = 'hidden';
 
   // Container utama
   const container = el('div').id('container')
@@ -52,7 +59,7 @@ export default function OllamaChat(config = {}) {
   container.css({
     'display': 'flex',
     'flex-direction': 'row',
-    'width': '100vw',
+    'width': '100%',
     'height': '100dvh',
     'background': '#f5f5f5'
   })
