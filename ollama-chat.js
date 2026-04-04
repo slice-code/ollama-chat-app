@@ -185,6 +185,10 @@ export default function OllamaChat(config = {}) {
           font-size: 14px;
         }
 
+        #mobile-menu-button.is-open {
+          background: #c62828;
+        }
+
         #sidebar {
           position: fixed;
           top: 0;
@@ -382,25 +386,29 @@ export default function OllamaChat(config = {}) {
     dialogConfirmCallback = null;
   }
 
+  function updateMobileMenuButton(isSidebarOpen) {
+    const menuBtn = document.getElementById('mobile-menu-button');
+    if (!menuBtn) {
+      return;
+    }
+
+    menuBtn.textContent = isSidebarOpen ? '✕ Tutup' : '☰ Menu';
+    menuBtn.classList.toggle('is-open', isSidebarOpen);
+  }
+
   function toggleMobileSidebar(show) {
-    if (!historyEnabled) {
+    if (!historyEnabled && show) {
       return;
     }
 
     if (show) {
       sidebar.el.classList.add('open');
       sidebarOverlay.el.classList.add('visible');
-      const menuBtn = document.getElementById('mobile-menu-button');
-      if (menuBtn) {
-        menuBtn.textContent = '✕ Close';
-      }
+      updateMobileMenuButton(true);
     } else {
       sidebar.el.classList.remove('open');
       sidebarOverlay.el.classList.remove('visible');
-      const menuBtn = document.getElementById('mobile-menu-button');
-      if (menuBtn) {
-        menuBtn.textContent = '☰ Menu';
-      }
+      updateMobileMenuButton(false);
     }
   }
 
@@ -1194,6 +1202,7 @@ export default function OllamaChat(config = {}) {
     });
 
   chatContainer.child(mobileMenuBtn);
+  updateMobileMenuButton(false);
 
   // Append sidebar and chatContainer to main container
   container.child([sidebar, chatContainer])
