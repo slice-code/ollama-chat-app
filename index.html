@@ -56,6 +56,21 @@
             .catch(err => console.log('SW registration failed:', err));
         });
       }
+
+      // Best-effort portrait lock for installed PWA on supported browsers
+      async function lockPortraitIfPossible() {
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+        if (!isStandalone) return;
+        if (!screen.orientation || typeof screen.orientation.lock !== 'function') return;
+
+        try {
+          await screen.orientation.lock('portrait-primary');
+        } catch (err) {
+          console.log('Orientation lock not supported/allowed:', err?.message || err);
+        }
+      }
+
+      window.addEventListener('load', lockPortraitIfPossible);
     </script>
 </body>
 
