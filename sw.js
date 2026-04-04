@@ -7,6 +7,8 @@ const STATIC_ASSETS = [
   '/chat-ui/chat-ui.js',
   '/el.js',
   '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
   '/icons/icon.svg',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css'
 ];

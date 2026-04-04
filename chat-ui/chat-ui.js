@@ -26,6 +26,10 @@ const ChatUI = function(config = {}) {
         mobileStyle.id = 'chat-ui-mobile-style';
         mobileStyle.textContent = `
             @media (max-width: 768px) {
+                #chat-app {
+                    height: 100dvh !important;
+                    max-height: 100dvh !important;
+                }
                 .chat-msg-wrapper {
                     flex-direction: row !important;
                 }
@@ -37,6 +41,9 @@ const ChatUI = function(config = {}) {
                 .chat-msg-triangle {
                     display: none !important;
                 }
+                #chat-input-area {
+                    padding-bottom: calc(20px + env(safe-area-inset-bottom)) !important;
+                }
             }
         `;
         document.head.appendChild(mobileStyle);
@@ -47,7 +54,7 @@ const ChatUI = function(config = {}) {
         .id('chat-app')
         .css({
             'max-width': chatType === 'full' ? config.full?.width || '800px' : config.popup?.width || '350px',
-            'max-height': chatType === 'full' ? '100vh' : config.popup?.height || '450px',
+            'max-height': chatType === 'full' ? '100dvh' : config.popup?.height || '450px',
             'margin': chatType === 'full' ? 'auto' : '0',
             'padding': '0',
             'background': config.background || '#fff',
@@ -206,8 +213,9 @@ const ChatUI = function(config = {}) {
 
     // Create message input area
     const inputArea = el('div')
+        .id('chat-input-area')
         .css({
-            'padding': chatType === 'popup' ? '15px 20px' : '20px',
+            'padding': chatType === 'popup' ? '15px 20px' : '20px 20px calc(20px + env(safe-area-inset-bottom)) 20px',
             'background': 'white',
             'border-top': '1px solid #e0e0e0',
             'display': 'flex',

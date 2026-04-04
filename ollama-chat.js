@@ -40,6 +40,8 @@ export default function OllamaChat(config = {}) {
   el(document.body).css({
     'margin': '0',
     'padding': '0',
+    'height': '100dvh',
+    'min-height': '100dvh',
     'font-family': 'Arial, sans-serif',
     'background': '#e5e5e5'
   }).get()
@@ -51,7 +53,7 @@ export default function OllamaChat(config = {}) {
     'display': 'flex',
     'flex-direction': 'row',
     'width': '100vw',
-    'height': '100vh',
+    'height': '100dvh',
     'background': '#f5f5f5'
   })
 
@@ -60,8 +62,8 @@ export default function OllamaChat(config = {}) {
   sidebar.css({
     'width': '360px',
     'min-width': '360px',
-    'height': '100vh',
-    'max-height': '100vh',
+    'height': '100dvh',
+    'max-height': '100dvh',
     'background': '#ffffff',
     'border-right': '1px solid #e0e0e0',
     'display': 'flex',
@@ -212,11 +214,21 @@ export default function OllamaChat(config = {}) {
 
         #container {
           flex-direction: column;
+          height: 100dvh;
         }
 
         #chat-container {
           width: 100%;
-          height: 100vh;
+          height: 100dvh;
+          max-height: 100dvh;
+        }
+
+        @supports not (height: 100dvh) {
+          #container,
+          #chat-container {
+            height: 100vh;
+            max-height: 100vh;
+          }
         }
 
         #sidebar-overlay {
@@ -1178,8 +1190,8 @@ export default function OllamaChat(config = {}) {
   const chatContainer = el('div').id('chat-container')
   chatContainer.css({
     'flex': '1',
-    'height': '100vh',
-    'max-height': '100vh',
+    'height': '100dvh',
+    'max-height': '100dvh',
     'overflow': 'hidden',
     'background': '#f5f5f5',
     'display': 'flex',
@@ -1447,7 +1459,7 @@ export default function OllamaChat(config = {}) {
     type: 'full',
     full: {
       width: '100%',
-      height: '100vh'
+      height: '100dvh'
     },
     borderRadius: '0px',
     boxShadow: 'none',
