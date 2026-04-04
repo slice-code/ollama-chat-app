@@ -120,48 +120,46 @@ export default function OllamaChat(config = {}) {
       }
 
       #history-setting-bar {
-        position: fixed;
-        top: 14px;
-        right: 16px;
-        z-index: 1006;
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 10px 14px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.96);
-        box-shadow: 0 14px 34px rgba(0,0,0,0.14);
-        border: 1px solid rgba(7,94,84,0.08);
-        backdrop-filter: blur(10px);
+        padding: 12px;
+        border-radius: 8px;
+        background: #f5f5f5;
+        border: 1px solid #e0e0e0;
+        margin-bottom: 12px;
       }
 
       #history-setting-text {
         display: flex;
         flex-direction: column;
         gap: 2px;
+        flex: 1;
       }
 
       #history-setting-label {
         font-size: 12px;
         color: #5f6b6d;
+        font-weight: 600;
       }
 
       #history-setting-status {
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         color: #075E54;
       }
 
       #history-setting-toggle {
         border: none;
-        border-radius: 999px;
-        padding: 8px 12px;
+        border-radius: 6px;
+        padding: 6px 10px;
         font-size: 12px;
-        font-weight: 700;
+        font-weight: 600;
         color: white;
         background: linear-gradient(135deg, #075E54 0%, #128C7E 100%);
         cursor: pointer;
         transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
+        white-space: nowrap;
       }
 
       #history-setting-toggle:hover {
@@ -222,15 +220,6 @@ export default function OllamaChat(config = {}) {
 
         #sidebar-overlay.visible {
           display: block;
-        }
-
-        #history-setting-bar {
-          top: auto;
-          bottom: 14px;
-          right: 14px;
-          left: 14px;
-          border-radius: 18px;
-          justify-content: space-between;
         }
       }
     `);
@@ -401,9 +390,17 @@ export default function OllamaChat(config = {}) {
     if (show) {
       sidebar.el.classList.add('open');
       sidebarOverlay.el.classList.add('visible');
+      const menuBtn = document.getElementById('mobile-menu-button');
+      if (menuBtn) {
+        menuBtn.textContent = '✕ Close';
+      }
     } else {
       sidebar.el.classList.remove('open');
       sidebarOverlay.el.classList.remove('visible');
+      const menuBtn = document.getElementById('mobile-menu-button');
+      if (menuBtn) {
+        menuBtn.textContent = '☰ Menu';
+      }
     }
   }
 
@@ -689,8 +686,6 @@ export default function OllamaChat(config = {}) {
   systemPromptActions.child([systemPromptResetBtn, systemPromptSaveBtn]);
   systemPromptGroup.child([systemPromptLabel, systemPromptInput, systemPromptHint, systemPromptActions]);
 
-  modelSelectorContainer.child([modelLabel, modelSelect, modelLoading, temperatureGroup, systemPromptGroup]);
-
   const historySettingCard = el('div')
     .id('history-setting-bar');
 
@@ -712,7 +707,8 @@ export default function OllamaChat(config = {}) {
 
   historySettingText.child([historySettingLabel, historySettingStatus]);
   historySettingCard.child([historySettingText, historyToggleBtn]);
-  document.body.appendChild(historySettingCard.get());
+  
+  modelSelectorContainer.child([modelLabel, modelSelect, modelLoading, temperatureGroup, systemPromptGroup, historySettingCard]);
 
   const newChatBtn = el('button')
     .html('<i class="fas fa-plus"></i> New Chat')
