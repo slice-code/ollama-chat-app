@@ -76,7 +76,7 @@ const server = http.createServer((req, res) => {
 
   // Set CORS headers for all responses
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   // Handle preflight requests
@@ -187,6 +187,35 @@ const server = http.createServer((req, res) => {
     conversationDB.deleteSession(sessionId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
+  if (req.url.match(/^\/api\/conversations\/[^\/]+\/title$/) && req.method === 'PUT') {
+    const parts = req.url.split('/');
+    const sessionId = parts[3];
+
+    parseBody(req, (body) => {
+      const rawTitle = typeof body.title === 'string' ? body.title : '';
+      const title = rawTitle.trim();
+
+      if (!sessionId || !title) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing required fields: session_id, title' }));
+        return;
+      }
+
+      const finalTitle = title.slice(0, 80);
+      const result = conversationDB.updateSessionTitle(sessionId, finalTitle);
+
+      if (!result.changes) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Session not found' }));
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, title: finalTitle }));
+    });
     return;
   }
 

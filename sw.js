@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ollama-chat-v3';
+const CACHE_NAME = 'ollama-chat-v4';
 
 const STATIC_ASSETS = [
   '/',

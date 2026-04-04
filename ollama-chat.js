@@ -1075,7 +1075,7 @@ export default function OllamaChat(config = {}) {
           const itemMeta = el('div')
             .css({
               'display': 'flex',
-              'justify-content': 'space-between',
+              'justify-content': 'flex-start',
               'align-items': 'center',
               'gap': '8px'
             });
@@ -1091,7 +1091,80 @@ export default function OllamaChat(config = {}) {
             .text(new Date(session.updated_at).toLocaleString())
             .css({
               'font-size': '11px',
-              'color': '#999'
+              'color': '#999',
+              'white-space': 'nowrap'
+            });
+
+          const itemActions = el('div')
+            .css({
+              'display': 'flex',
+              'align-items': 'center',
+              'gap': '6px',
+              'margin-left': 'auto',
+              'flex-shrink': '0'
+            });
+
+          const editBtn = el('button')
+            .html('<i class="fas fa-pen-to-square"></i> Edit')
+            .attr('title', 'Edit chat title')
+            .css({
+              'padding': '4px 8px',
+              'background': 'transparent',
+              'color': '#075E54',
+              'border': '1px solid #075E54',
+              'border-radius': '4px',
+              'cursor': 'pointer',
+              'font-size': '12px',
+              'transition': 'all 0.2s',
+              'opacity': '0.75',
+              'flex-shrink': '0'
+            })
+            .hover(
+              function() {
+                this.style.background = '#075E54';
+                this.style.color = 'white';
+                this.style.opacity = '1';
+              },
+              function() {
+                this.style.background = 'transparent';
+                this.style.color = '#075E54';
+                this.style.opacity = '0.75';
+              }
+            )
+            .click(async function(e) {
+              e.stopPropagation();
+
+              const currentTitle = session.title || 'Untitled Chat';
+              const nextTitle = window.prompt('Edit chat title:', currentTitle);
+
+              if (nextTitle === null) {
+                return;
+              }
+
+              const normalizedTitle = nextTitle.trim();
+              if (!normalizedTitle) {
+                showToast('Title tidak boleh kosong', 'error');
+                return;
+              }
+
+              try {
+                const response = await fetch(`/api/conversations/${session.session_id}/title`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ title: normalizedTitle })
+                });
+
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                  throw new Error(result.error || 'Failed to update title');
+                }
+
+                await loadChatHistory();
+                showToast('Title chat berhasil diubah', 'success');
+              } catch (error) {
+                console.error('Failed to update title:', error);
+                showToast('Gagal mengubah title chat', 'error');
+              }
             });
 
           // Delete button for each session
@@ -1173,7 +1246,8 @@ export default function OllamaChat(config = {}) {
               );
             });
 
-          itemMeta.child([messageCount, itemTime, deleteBtn]);
+          itemActions.child([editBtn, deleteBtn]);
+          itemMeta.child([messageCount, itemTime, itemActions]);
           chatItem.child([itemTitle, itemMeta]);
           chatList.child(chatItem);
           

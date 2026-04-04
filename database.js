@@ -135,7 +135,7 @@ const conversationDB = {
   updateSessionTitle(sessionId, title) {
     const stmt = db.prepare(`
       UPDATE sessions 
-      SET title = ? 
+      SET title = ?, updated_at = CURRENT_TIMESTAMP
       WHERE session_id = ?
     `);
     return stmt.run(title, sessionId);
