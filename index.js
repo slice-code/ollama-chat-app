@@ -198,8 +198,15 @@ const server = http.createServer((req, res) => {
   }
 
   // Static file serving
-  let filePath = req.url === '/' ? '/index.html' : req.url;
-  filePath = filePath.split('?')[0];
+  let filePath = req.url.split('?')[0];
+
+  // Treat root-like URLs as index.html (including /?source=pwa from manifest start_url)
+  if (!filePath || filePath === '/') {
+    filePath = '/index.html';
+  }
+
+  // Normalize to a relative path so path.join cannot escape __dirname
+  filePath = filePath.replace(/^\/+/, '');
   filePath = path.join(__dirname, filePath);
 
   const ext = path.extname(filePath).toLowerCase();

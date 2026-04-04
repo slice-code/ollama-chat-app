@@ -2,7 +2,7 @@
   "name": "Ollama Chat UI",
   "short_name": "Ollama Chat",
   "description": "Chat UI untuk Ollama AI - jalankan AI lokal di browser",
-  "start_url": "/?source=pwa",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
