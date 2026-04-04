@@ -5,7 +5,7 @@ const _app = document.getElementById('app');
 const HISTORY_SETTING_KEY = 'ollama_chat_history_enabled';
 const TEMPERATURE_SETTING_KEY = 'ollama_chat_temperature';
 const SYSTEM_PROMPT_SETTING_KEY = 'ollama_chat_system_prompt';
-const DEFAULT_SYSTEM_PROMPT = 'Anda adalah asisten profesional yang membantu pengguna dengan jawaban yang jelas, akurat, dan sopan.';
+const DEFAULT_SYSTEM_PROMPT = 'You are a professional assistant that helps users with clear, accurate, and respectful answers.';
 
 function createSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
