@@ -445,11 +445,16 @@ export default function OllamaChat(config = {}) {
   const refreshBtn = el('button')
     .html('<i class="fas fa-sync-alt"></i>')
     .css({
-      'padding': '6px 10px',
+      'padding': '6px 6px',
       'background': 'rgba(255,255,255,0.3)',
       'color': 'white',
       'border': 'none',
-      'border-radius': '4px',
+      'width': '32px',
+      'height': '32px',
+      'display': 'flex',
+      'align-items': 'center',
+      'justify-content': 'center',
+      'border-radius': '50px',
       'cursor': 'pointer',
       'font-size': '12px',
       'align-self': 'flex-end',
