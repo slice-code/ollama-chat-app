@@ -35,7 +35,6 @@ export default function OllamaChat(config = {}) {
   let currentSystemPrompt = storedSystemPrompt && storedSystemPrompt.trim()
     ? storedSystemPrompt
     : defaultSystemPrompt;
-  let runtimeSessionId = createSessionId();
 
   // Reset body
   el(document.body).css({
@@ -105,20 +104,6 @@ export default function OllamaChat(config = {}) {
       }
       #sidebar-overlay.visible {
         display: block;
-      }
-
-      body.history-disabled #sidebar {
-        display: none !important;
-        visibility: hidden !important;
-        transform: translateX(-100%) !important;
-      }
-
-      body.history-disabled #mobile-menu-button {
-        display: none !important;
-      }
-
-      body.history-disabled #sidebar-overlay {
-        display: none !important;
       }
 
       #history-setting-bar {
@@ -414,10 +399,6 @@ export default function OllamaChat(config = {}) {
   }
 
   function toggleMobileSidebar(show) {
-    if (!historyEnabled && show) {
-      return;
-    }
-
     if (show) {
       sidebar.el.classList.add('open');
       sidebarOverlay.el.classList.add('visible');
@@ -760,10 +741,6 @@ export default function OllamaChat(config = {}) {
       function() { this.style.background = 'rgba(255,255,255,0.2)'; }
     )
     .click(async function() {
-      if (!historyEnabled) {
-        return;
-      }
-
       console.log('🆕 Creating new chat session...');
       
       // Generate new session ID
@@ -908,10 +885,6 @@ export default function OllamaChat(config = {}) {
   let isLoadingSession = false; // Prevent rapid multiple loads
   
   chatList.el.addEventListener('click', async function(e) {
-    if (!historyEnabled) {
-      return;
-    }
-
     const chatItemEl = e.target.closest('[data-session-id]');
     if (!chatItemEl) return;
     
@@ -1001,11 +974,6 @@ export default function OllamaChat(config = {}) {
 
   // Load chat history from database
   async function loadChatHistory() {
-    if (!historyEnabled) {
-      chatList.el.innerHTML = '<div style="text-align:center;color:#666;padding:20px;font-size:13px;">History dimatikan</div>';
-      return;
-    }
-
     try {
       console.log('📋 Loading chat history...');
       const response = await fetch('/api/conversations');
@@ -1215,10 +1183,6 @@ export default function OllamaChat(config = {}) {
     .id('mobile-menu-button')
     .text('☰')
     .click(function() {
-      if (!historyEnabled) {
-        return;
-      }
-
       const isOpen = sidebar.el.classList.contains('open');
       toggleMobileSidebar(!isOpen);
     });
@@ -1237,10 +1201,6 @@ export default function OllamaChat(config = {}) {
 
   // Generate or load session ID
   function getSessionId() {
-    if (!historyEnabled) {
-      return runtimeSessionId;
-    }
-
     let sessionId = localStorage.getItem('chat_session_id');
     if (!sessionId) {
       sessionId = createSessionId();
@@ -1272,23 +1232,9 @@ export default function OllamaChat(config = {}) {
     historyToggleBtn.el.style.background = historyEnabled
       ? 'linear-gradient(135deg, #075E54 0%, #128C7E 100%)'
       : 'linear-gradient(135deg, #7f8c8d 0%, #95a5a6 100%)';
-    newChatBtn.disabled(historyEnabled ? false : true);
-    newChatBtn.el.style.opacity = historyEnabled ? '1' : '0.5';
-    newChatBtn.el.style.cursor = historyEnabled ? 'pointer' : 'not-allowed';
-
-    if (historyEnabled) {
-      document.body.classList.remove('history-disabled');
-    } else {
-      document.body.classList.add('history-disabled');
-      toggleMobileSidebar(false);
-    }
   }
 
   async function loadCurrentSessionIntoChat() {
-    if (!historyEnabled) {
-      return;
-    }
-
     try {
       const response = await fetch(`/api/conversations?session_id=${currentSessionId}`);
       const data = await response.json();
@@ -1323,33 +1269,14 @@ export default function OllamaChat(config = {}) {
     updateHistorySettingUI();
 
     if (!historyEnabled) {
-      runtimeSessionId = createSessionId();
-      currentSessionId = runtimeSessionId;
-      sessionInDb = false;
-      conversationHistory = [];
-      conversationSummary = '';
-      isFirstMessageInSession = true;
-      chatInstance.resetMessages();
-      await loadChatHistory();
-      showToast('History dimatikan. Chat berikutnya tidak akan diingat.', 'info');
+      showToast('Memory AI dimatikan. Chat tetap disimpan, tapi tidak dipakai sebagai context.', 'info');
       return;
     }
 
-    currentSessionId = getSessionId();
-    sessionInDb = false;
-    conversationHistory = [];
-    conversationSummary = '';
-    isFirstMessageInSession = true;
-    await loadChatHistory();
-    await loadCurrentSessionIntoChat();
-    showToast('History dihidupkan. Percakapan bisa disimpan dan dipakai sebagai context.', 'success');
+    showToast('Memory AI dihidupkan. Riwayat chat akan dipakai sebagai context.', 'success');
   }
   
   async function loadConversationHistory() {
-    if (!historyEnabled) {
-      return;
-    }
-
     try {
       const response = await fetch(`/api/conversations?session_id=${currentSessionId}`);
       const data = await response.json();
@@ -1373,10 +1300,6 @@ export default function OllamaChat(config = {}) {
   let isFirstMessageInSession = true; // Track if this is the first message in a new session
   
   async function saveMessage(role, content) {
-    if (!historyEnabled) {
-      return;
-    }
-
     try {
       const response = await fetch('/api/conversations', {
         method: 'POST',
@@ -1626,19 +1549,17 @@ export default function OllamaChat(config = {}) {
         }
       }
 
-      // Add this exchange to conversation history
-      if (historyEnabled) {
-        conversationHistory.push({ role: 'user', content: message });
-        conversationHistory.push({ role: 'assistant', content: fullResponse });
+      // Always store chat locally/database; historyEnabled controls only context sent to model.
+      conversationHistory.push({ role: 'user', content: message });
+      conversationHistory.push({ role: 'assistant', content: fullResponse });
 
-        // Save to database (async, non-blocking)
-        await saveMessage('user', message);
-        await saveMessage('assistant', fullResponse);
+      // Save to database (async, non-blocking)
+      await saveMessage('user', message);
+      await saveMessage('assistant', fullResponse);
 
-        // Auto-summarize if we have too many messages
-        if (conversationHistory.length >= SUMMARY_THRESHOLD) {
-          await autoSummarize();
-        }
+      // Auto-summarize only when memory is enabled for model context.
+      if (historyEnabled && conversationHistory.length >= SUMMARY_THRESHOLD) {
+        await autoSummarize();
       }
 
       console.log('✓ Conversation updated, history:', conversationHistory.length, 'messages');
@@ -1650,9 +1571,7 @@ export default function OllamaChat(config = {}) {
   updateHistorySettingUI();
 
   // Load history on initialization
-  if (historyEnabled) {
-    loadConversationHistory();
-  }
+  loadConversationHistory();
 
   // Add ChatUI element to chat container
   chatContainer.get().appendChild(chatInstance.getElement())
