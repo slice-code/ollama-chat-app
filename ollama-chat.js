@@ -4,6 +4,8 @@ import ChatUI from './chat-ui/chat-ui.js'
 const _app = document.getElementById('app');
 const HISTORY_SETTING_KEY = 'ollama_chat_history_enabled';
 const TEMPERATURE_SETTING_KEY = 'ollama_chat_temperature';
+const SYSTEM_PROMPT_SETTING_KEY = 'ollama_chat_system_prompt';
+const DEFAULT_SYSTEM_PROMPT = 'Anda adalah asisten profesional yang membantu pengguna dengan jawaban yang jelas, akurat, dan sopan.';
 
 function createSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -24,8 +26,15 @@ export default function OllamaChat(config = {}) {
   const storedHistorySetting = localStorage.getItem(HISTORY_SETTING_KEY);
   const defaultTemperature = clampTemperature(config.temperature ?? 0.7);
   const storedTemperatureSetting = localStorage.getItem(TEMPERATURE_SETTING_KEY);
+  const defaultSystemPrompt = typeof config.systemPrompt === 'string' && config.systemPrompt.trim()
+    ? config.systemPrompt.trim()
+    : DEFAULT_SYSTEM_PROMPT;
+  const storedSystemPrompt = localStorage.getItem(SYSTEM_PROMPT_SETTING_KEY);
   let historyEnabled = storedHistorySetting === null ? defaultHistoryEnabled : storedHistorySetting === 'true';
   let currentTemperature = storedTemperatureSetting === null ? defaultTemperature : clampTemperature(storedTemperatureSetting);
+  let currentSystemPrompt = storedSystemPrompt && storedSystemPrompt.trim()
+    ? storedSystemPrompt
+    : defaultSystemPrompt;
   let runtimeSessionId = createSessionId();
 
   // Reset body
@@ -582,7 +591,105 @@ export default function OllamaChat(config = {}) {
   temperatureHeader.child([temperatureLabel, temperatureValue]);
   temperatureGroup.child([temperatureHeader, temperatureInput, temperatureHint]);
 
-  modelSelectorContainer.child([modelLabel, modelSelect, modelLoading, temperatureGroup]);
+  const systemPromptGroup = el('div')
+    .css({
+      'display': 'flex',
+      'flex-direction': 'column',
+      'gap': '8px',
+      'padding': '10px 12px',
+      'border-radius': '10px',
+      'background': 'rgba(255,255,255,0.12)'
+    });
+
+  const systemPromptLabel = el('label')
+    .text('System Prompt')
+    .css({
+      'font-size': '13px',
+      'opacity': '0.95'
+    });
+
+  const systemPromptInput = el('textarea')
+    .attr('rows', '4')
+    .css({
+      'width': '100%',
+      'resize': 'vertical',
+      'min-height': '86px',
+      'max-height': '180px',
+      'border': 'none',
+      'border-radius': '8px',
+      'padding': '10px',
+      'font-size': '12px',
+      'line-height': '1.45',
+      'outline': 'none',
+      'background': 'rgba(255,255,255,0.95)',
+      'color': '#1f2d2e'
+    });
+
+  const systemPromptHint = el('div')
+    .text('Prompt ini dipakai di setiap request ke model.')
+    .css({
+      'font-size': '11px',
+      'opacity': '0.8'
+    });
+
+  const systemPromptActions = el('div')
+    .css({
+      'display': 'flex',
+      'gap': '8px',
+      'justify-content': 'flex-end'
+    });
+
+  const systemPromptResetBtn = el('button')
+    .text('Reset')
+    .css({
+      'padding': '6px 10px',
+      'border': 'none',
+      'border-radius': '8px',
+      'font-size': '12px',
+      'cursor': 'pointer',
+      'background': 'rgba(255,255,255,0.3)',
+      'color': 'white'
+    });
+
+  const systemPromptSaveBtn = el('button')
+    .text('Simpan')
+    .css({
+      'padding': '6px 10px',
+      'border': 'none',
+      'border-radius': '8px',
+      'font-size': '12px',
+      'cursor': 'pointer',
+      'background': '#25D366',
+      'color': 'white',
+      'font-weight': '600'
+    });
+
+  function setSystemPrompt(nextPrompt, persist = true) {
+    const normalizedPrompt = (nextPrompt || '').trim() || DEFAULT_SYSTEM_PROMPT;
+    currentSystemPrompt = normalizedPrompt;
+    systemPromptInput.value(normalizedPrompt);
+
+    if (persist) {
+      localStorage.setItem(SYSTEM_PROMPT_SETTING_KEY, normalizedPrompt);
+    }
+  }
+
+  systemPromptSaveBtn.click(function() {
+    setSystemPrompt(systemPromptInput.el.value, true);
+    showToast('System prompt berhasil disimpan', 'success');
+  });
+
+  systemPromptResetBtn.click(function() {
+    setSystemPrompt(DEFAULT_SYSTEM_PROMPT, true);
+    showToast('System prompt kembali ke default', 'info');
+  });
+
+  setSystemPrompt(currentSystemPrompt, false);
+
+  systemPromptActions.child([systemPromptResetBtn, systemPromptSaveBtn]);
+  systemPromptGroup.child([systemPromptLabel, systemPromptInput, systemPromptHint, systemPromptActions]);
+
+  modelSelectorContainer.child([modelLabel, modelSelect, modelLoading, temperatureGroup, systemPromptGroup]);
 
   const historySettingCard = el('div')
     .id('history-setting-bar');
@@ -1375,38 +1482,6 @@ export default function OllamaChat(config = {}) {
     return fullContext;
   }
 
-  const eljsSystemPrompt = `You are qwen-el, an assistant that understands el.js and the code in this repository.
-Only provide el.js code when the user explicitly requests UI implementation, component construction, or asks to make UI with el.js.
-For general conversation, greetings, or normal user questions, answer naturally in plain language without code.
-Do not output code unless the user explicitly asks for it.
-Do not invent any el.js methods that are not in the provided reference.
-If you need to add classes, use .class('...') rather than .addClass('...').
-
-Use only these el.js capabilities:
-- Wrapper creation: el('tag') creates a new element wrapper.
-- Wrapper fields: .el is the raw DOM node, .ch is the queued child array.
-- Text / HTML: .text('text'), .textContent('text'), .html('<b>...</b>')
-- Attributes: .id(), .name(), .href(), .rel(), .type(), .src(), .placeholder(), .required(), .disabled(), .checked(), .draggable(), .data(name, value), .aria(name, value)
-- Styling: .css({ ... }), .style({ ... }), and these shortcuts:
-  .width(), .height(), .margin(), .padding(), .border(), .borderTop(), .borderBottom(), .borderLeft(), .borderRight(), .radius(), .background(), .backgroundImage(), .backgroundSize(), .backgroundRepeat(), .backgroundPosition(), .color(), .font(), .fontWeight(), .align(), .size(), .display(), .flex(), .grid(), .justify(), .items(), .self(), .gap(), .wrap(), .cursor(), .opacity(), .zIndex(), .overflow(), .overflowX(), .overflowY(), .boxShadow(), .transform(), .transition(), .lineHeight(), .maxWidth(), .maxHeight(), .minWidth(), .minHeight(), .outline()
-- Class helpers: .class('a b'), .clearClass(), .removeClass('a'), .toggleClass('a'), .hasClass('a')
-- Event helpers: .on(event, fn), .click(fn), .hover(enterFn, leaveFn), .change(fn), .keydown(fn), .keyup(fn), .keypress(fn), .input(fn), .paste(fn), .focus(fn), .blur(fn), .submit(fn), .mouseover(fn), .mouseout(fn), .mousedown(fn), .mouseup(fn), .touchstart(fn), .touchend(fn), .touchmove(fn), .dblclick(fn), .contextmenu(fn), .wheel(fn), .scroll(fn), .resize(fn), .load(fn), .loopFunc(callback, time)
-- DOM helpers: .child(child), .child([child1, child2]), .prepend(child), .remove(), .replace(child), .off(event, fn), .selectAll(), .scrollTo(x, y), .scrollIntoView(options), .empty(), .attrRemove(name), .styleRemove(name), .cssText(text)
-- Value getters: .getValue(), .getVal(), .getText(), .getHtml(), .getAttr(name), .getData(name), .getStyle(name), .getParent(), .getChildren(), .getSiblings(), .getIndex(), .getWidth(), .getHeight()
-- Traversal: .find(selector), .findAll(selector), .closest(selector), .next(), .prev(), .first(), .last(), .eq(index)
-- Linking: .link(obj, name) stores the wrapper's actual DOM node in obj[name].
-- Get behavior: .get() appends queued children from .ch into .el and returns the raw DOM node. Do not call el.js wrapper methods after .get().
-
-Examples of valid el.js usage:
-- const button = el('button').text('Click me').css({ background: '#4CAF50' }).click(() => alert('clicked'));
-  document.body.appendChild(button.get());
-
-Examples of invalid usage to avoid:
-- document.body.appendChild(button.get());
-  button.get().click(() => alert('clicked'));
-
-Answer with valid el.js code only when the user requests UI code. Otherwise answer in plain language.`;
-
   // Initialize ChatUI
   const chatInstance = ChatUI({
     type: 'full',
@@ -1463,7 +1538,7 @@ Answer with valid el.js code only when the user requests UI code. Otherwise answ
       
       // Add system prompt and current message
       const messagesPayload = [
-        { role: 'system', content: eljsSystemPrompt },
+        { role: 'system', content: currentSystemPrompt },
         ...contextMessages,
         { role: 'user', content: message }
       ];
