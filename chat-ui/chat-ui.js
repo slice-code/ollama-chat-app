@@ -269,10 +269,41 @@ const ChatUI = function(config = {}) {
     typingIndicator.child(typingDots);
 
     function copyTextToClipboard(text) {
-        if (!navigator.clipboard) {
-            return Promise.reject(new Error('Clipboard API not supported'));
+        // Prefer modern Clipboard API when available in secure contexts.
+        if (navigator.clipboard && window.isSecureContext) {
+            return navigator.clipboard.writeText(text).catch(() => {
+                return fallbackCopyText(text);
+            });
         }
-        return navigator.clipboard.writeText(text);
+        return fallbackCopyText(text);
+    }
+
+    function fallbackCopyText(text) {
+        return new Promise((resolve, reject) => {
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'fixed';
+                textarea.style.top = '-1000px';
+                textarea.style.left = '-1000px';
+
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textarea);
+
+                if (successful) {
+                    resolve();
+                } else {
+                    reject(new Error('Fallback copy command failed'));
+                }
+            } catch (error) {
+                reject(error);
+            }
+        });
     }
 
     function showInlineToast(message, duration = 2200) {

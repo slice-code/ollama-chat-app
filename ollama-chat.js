@@ -2,8 +2,31 @@ import './el.js'
 import ChatUI from './chat-ui/chat-ui.js'
 
 const _app = document.getElementById('app');
+const HISTORY_SETTING_KEY = 'ollama_chat_history_enabled';
+const TEMPERATURE_SETTING_KEY = 'ollama_chat_temperature';
 
-export default function OllamaChat() {
+function createSessionId() {
+  return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function clampTemperature(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return 0.7;
+  }
+
+  return Math.min(2, Math.max(0, numericValue));
+}
+
+export default function OllamaChat(config = {}) {
+  const defaultHistoryEnabled = config.enableHistory !== false;
+  const storedHistorySetting = localStorage.getItem(HISTORY_SETTING_KEY);
+  const defaultTemperature = clampTemperature(config.temperature ?? 0.7);
+  const storedTemperatureSetting = localStorage.getItem(TEMPERATURE_SETTING_KEY);
+  let historyEnabled = storedHistorySetting === null ? defaultHistoryEnabled : storedHistorySetting === 'true';
+  let currentTemperature = storedTemperatureSetting === null ? defaultTemperature : clampTemperature(storedTemperatureSetting);
+  let runtimeSessionId = createSessionId();
 
   // Reset body
   el(document.body).css({
@@ -18,6 +41,7 @@ export default function OllamaChat() {
 
   container.css({
     'display': 'flex',
+    'flex-direction': 'row',
     'width': '100vw',
     'height': '100vh',
     'background': '#f5f5f5'
@@ -70,6 +94,69 @@ export default function OllamaChat() {
       }
       #sidebar-overlay.visible {
         display: block;
+      }
+
+      body.history-disabled #sidebar {
+        display: none !important;
+        visibility: hidden !important;
+        transform: translateX(-100%) !important;
+      }
+
+      body.history-disabled #mobile-menu-button {
+        display: none !important;
+      }
+
+      body.history-disabled #sidebar-overlay {
+        display: none !important;
+      }
+
+      #history-setting-bar {
+        position: fixed;
+        top: 14px;
+        right: 16px;
+        z-index: 1006;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.96);
+        box-shadow: 0 14px 34px rgba(0,0,0,0.14);
+        border: 1px solid rgba(7,94,84,0.08);
+        backdrop-filter: blur(10px);
+      }
+
+      #history-setting-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      #history-setting-label {
+        font-size: 12px;
+        color: #5f6b6d;
+      }
+
+      #history-setting-status {
+        font-size: 13px;
+        font-weight: 700;
+        color: #075E54;
+      }
+
+      #history-setting-toggle {
+        border: none;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        color: white;
+        background: linear-gradient(135deg, #075E54 0%, #128C7E 100%);
+        cursor: pointer;
+        transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
+      }
+
+      #history-setting-toggle:hover {
+        transform: translateY(-1px);
       }
 
       @media (max-width: 768px) {
@@ -126,6 +213,15 @@ export default function OllamaChat() {
 
         #sidebar-overlay.visible {
           display: block;
+        }
+
+        #history-setting-bar {
+          top: auto;
+          bottom: 14px;
+          right: 14px;
+          left: 14px;
+          border-radius: 18px;
+          justify-content: space-between;
         }
       }
     `);
@@ -289,6 +385,10 @@ export default function OllamaChat() {
   }
 
   function toggleMobileSidebar(show) {
+    if (!historyEnabled) {
+      return;
+    }
+
     if (show) {
       sidebar.el.classList.add('open');
       sidebarOverlay.el.classList.add('visible');
@@ -409,7 +509,103 @@ export default function OllamaChat() {
       'font-style': 'italic'
     });
 
-  modelSelectorContainer.child([modelLabel, modelSelect, modelLoading]);
+  const temperatureGroup = el('div')
+    .css({
+      'display': 'flex',
+      'flex-direction': 'column',
+      'gap': '8px',
+      'padding': '10px 12px',
+      'border-radius': '10px',
+      'background': 'rgba(255,255,255,0.12)'
+    });
+
+  const temperatureHeader = el('div')
+    .css({
+      'display': 'flex',
+      'justify-content': 'space-between',
+      'align-items': 'center',
+      'gap': '10px'
+    });
+
+  const temperatureLabel = el('label')
+    .text('Temperature')
+    .css({
+      'font-size': '13px',
+      'opacity': '0.95'
+    });
+
+  const temperatureValue = el('span')
+    .css({
+      'font-size': '12px',
+      'font-weight': '700',
+      'padding': '3px 8px',
+      'border-radius': '999px',
+      'background': 'rgba(255,255,255,0.18)',
+      'color': 'white'
+    });
+
+  const temperatureHint = el('div')
+    .text('Rendah = lebih konsisten, tinggi = lebih kreatif')
+    .css({
+      'font-size': '11px',
+      'opacity': '0.8',
+      'line-height': '1.4'
+    });
+
+  const temperatureInput = el('input')
+    .attr('type', 'range')
+    .attr('min', '0')
+    .attr('max', '2')
+    .attr('step', '0.1')
+    .value(String(currentTemperature))
+    .css({
+      'width': '100%',
+      'accent-color': '#25D366',
+      'cursor': 'pointer'
+    })
+    .input(function() {
+      setTemperature(this.value);
+    })
+    .change(function() {
+      setTemperature(this.value);
+    });
+
+  function setTemperature(nextValue) {
+    currentTemperature = clampTemperature(nextValue);
+    localStorage.setItem(TEMPERATURE_SETTING_KEY, String(currentTemperature));
+    temperatureInput.el.value = String(currentTemperature);
+    temperatureValue.text(currentTemperature.toFixed(1));
+  }
+
+  setTemperature(currentTemperature);
+
+  temperatureHeader.child([temperatureLabel, temperatureValue]);
+  temperatureGroup.child([temperatureHeader, temperatureInput, temperatureHint]);
+
+  modelSelectorContainer.child([modelLabel, modelSelect, modelLoading, temperatureGroup]);
+
+  const historySettingCard = el('div')
+    .id('history-setting-bar');
+
+  const historySettingText = el('div')
+    .id('history-setting-text');
+
+  const historySettingLabel = el('span')
+    .id('history-setting-label')
+    .text('Memory percakapan');
+
+  const historySettingStatus = el('span')
+    .id('history-setting-status');
+
+  const historyToggleBtn = el('button')
+    .id('history-setting-toggle')
+    .click(function() {
+      setHistoryEnabled(!historyEnabled);
+    });
+
+  historySettingText.child([historySettingLabel, historySettingStatus]);
+  historySettingCard.child([historySettingText, historyToggleBtn]);
+  document.body.appendChild(historySettingCard.get());
 
   const newChatBtn = el('button')
     .html('<i class="fas fa-plus"></i> New Chat')
@@ -432,10 +628,14 @@ export default function OllamaChat() {
       function() { this.style.background = 'rgba(255,255,255,0.2)'; }
     )
     .click(async function() {
+      if (!historyEnabled) {
+        return;
+      }
+
       console.log('🆕 Creating new chat session...');
       
       // Generate new session ID
-      const newSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      const newSessionId = createSessionId();
       localStorage.setItem('chat_session_id', newSessionId);
       
       // Clear conversation history
@@ -575,6 +775,10 @@ export default function OllamaChat() {
   let isLoadingSession = false; // Prevent rapid multiple loads
   
   chatList.el.addEventListener('click', async function(e) {
+    if (!historyEnabled) {
+      return;
+    }
+
     const chatItemEl = e.target.closest('[data-session-id]');
     if (!chatItemEl) return;
     
@@ -664,6 +868,11 @@ export default function OllamaChat() {
 
   // Load chat history from database
   async function loadChatHistory() {
+    if (!historyEnabled) {
+      chatList.el.innerHTML = '<div style="text-align:center;color:#666;padding:20px;font-size:13px;">History dimatikan</div>';
+      return;
+    }
+
     try {
       console.log('📋 Loading chat history...');
       const response = await fetch('/api/conversations');
@@ -873,6 +1082,10 @@ export default function OllamaChat() {
     .id('mobile-menu-button')
     .text('☰ Menu')
     .click(function() {
+      if (!historyEnabled) {
+        return;
+      }
+
       const isOpen = sidebar.el.classList.contains('open');
       toggleMobileSidebar(!isOpen);
     });
@@ -890,9 +1103,13 @@ export default function OllamaChat() {
 
   // Generate or load session ID
   function getSessionId() {
+    if (!historyEnabled) {
+      return runtimeSessionId;
+    }
+
     let sessionId = localStorage.getItem('chat_session_id');
     if (!sessionId) {
-      sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      sessionId = createSessionId();
       localStorage.setItem('chat_session_id', sessionId);
     }
     return sessionId;
@@ -914,8 +1131,91 @@ export default function OllamaChat() {
   // Load conversation history from database
   let conversationHistory = [];
   let conversationSummary = '';
+
+  function updateHistorySettingUI() {
+    historySettingStatus.text(historyEnabled ? 'Aktif' : 'Nonaktif');
+    historyToggleBtn.text(historyEnabled ? 'Matikan' : 'Hidupkan');
+    historyToggleBtn.el.style.background = historyEnabled
+      ? 'linear-gradient(135deg, #075E54 0%, #128C7E 100%)'
+      : 'linear-gradient(135deg, #7f8c8d 0%, #95a5a6 100%)';
+    newChatBtn.disabled(historyEnabled ? false : true);
+    newChatBtn.el.style.opacity = historyEnabled ? '1' : '0.5';
+    newChatBtn.el.style.cursor = historyEnabled ? 'pointer' : 'not-allowed';
+
+    if (historyEnabled) {
+      document.body.classList.remove('history-disabled');
+    } else {
+      document.body.classList.add('history-disabled');
+      toggleMobileSidebar(false);
+    }
+  }
+
+  async function loadCurrentSessionIntoChat() {
+    if (!historyEnabled) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/conversations?session_id=${currentSessionId}`);
+      const data = await response.json();
+
+      if (data.success && data.history && data.history.length > 0) {
+        conversationHistory = data.history.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
+        chatInstance.resetMessages();
+        chatInstance.loadMessages(data.history.map(msg => ({
+          content: msg.content,
+          role: msg.role,
+          time: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        })));
+        isFirstMessageInSession = false;
+      } else {
+        conversationHistory = [];
+        conversationSummary = '';
+        isFirstMessageInSession = true;
+        chatInstance.resetMessages();
+      }
+    } catch (error) {
+      console.error('Failed to load current session into chat:', error);
+    }
+  }
+
+  async function setHistoryEnabled(nextValue) {
+    historyEnabled = nextValue;
+    localStorage.setItem(HISTORY_SETTING_KEY, String(historyEnabled));
+    updateHistorySettingUI();
+
+    if (!historyEnabled) {
+      runtimeSessionId = createSessionId();
+      currentSessionId = runtimeSessionId;
+      sessionInDb = false;
+      conversationHistory = [];
+      conversationSummary = '';
+      isFirstMessageInSession = true;
+      chatInstance.resetMessages();
+      await loadChatHistory();
+      showToast('History dimatikan. Chat berikutnya tidak akan diingat.', 'info');
+      return;
+    }
+
+    currentSessionId = getSessionId();
+    sessionInDb = false;
+    conversationHistory = [];
+    conversationSummary = '';
+    isFirstMessageInSession = true;
+    await loadChatHistory();
+    await loadCurrentSessionIntoChat();
+    showToast('History dihidupkan. Percakapan bisa disimpan dan dipakai sebagai context.', 'success');
+  }
   
   async function loadConversationHistory() {
+    if (!historyEnabled) {
+      return;
+    }
+
     try {
       const response = await fetch(`/api/conversations?session_id=${currentSessionId}`);
       const data = await response.json();
@@ -939,6 +1239,10 @@ export default function OllamaChat() {
   let isFirstMessageInSession = true; // Track if this is the first message in a new session
   
   async function saveMessage(role, content) {
+    if (!historyEnabled) {
+      return;
+    }
+
     try {
       const response = await fetch('/api/conversations', {
         method: 'POST',
@@ -1032,6 +1336,10 @@ export default function OllamaChat() {
   
   // Build optimized context with smart management
   function buildContext() {
+    if (!historyEnabled) {
+      return [];
+    }
+
     const context = [];
     
     // Add summary if exists (as system message at the beginning)
@@ -1123,23 +1431,25 @@ Answer with valid el.js code only when the user requests UI code. Otherwise answ
       
       // CRITICAL: Always re-fetch conversation history to ensure we're using the correct session's data
       // This is essential when switching between chats to avoid mixing contexts
-      try {
-        const freshResponse = await fetch(`/api/conversations?session_id=${currentSessionId}`);
-        const freshData = await freshResponse.json();
-        
-        if (freshData.success) {
-          const freshHistory = freshData.history.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          }));
+      if (historyEnabled) {
+        try {
+          const freshResponse = await fetch(`/api/conversations?session_id=${currentSessionId}`);
+          const freshData = await freshResponse.json();
           
-          // Always use fresh data from database for this session
-          // This ensures we're not using stale context from previous session
-          conversationHistory = freshHistory;
-          console.log('🔄 Loaded fresh history for session:', currentSessionId, '| Messages:', conversationHistory.length);
+          if (freshData.success) {
+            const freshHistory = freshData.history.map(msg => ({
+              role: msg.role,
+              content: msg.content
+            }));
+            
+            // Always use fresh data from database for this session
+            // This ensures we're not using stale context from previous session
+            conversationHistory = freshHistory;
+            console.log('🔄 Loaded fresh history for session:', currentSessionId, '| Messages:', conversationHistory.length);
+          }
+        } catch (error) {
+          console.warn('Failed to fetch fresh conversation history, using cached:', error);
         }
-      } catch (error) {
-        console.warn('Failed to fetch fresh conversation history, using cached:', error);
       }
       
       // Build optimized context (summary + recent messages)
@@ -1165,6 +1475,7 @@ Answer with valid el.js code only when the user requests UI code. Otherwise answ
       // Larger context = slower but more memory, smaller = faster but less context
       const optimalContextSize = Math.max(4096, Math.min(totalTokens + 1024, 8192));
       console.log('🎯 Using context size:', optimalContextSize);
+      console.log('🌡️ Using temperature:', currentTemperature);
       
       const response = await fetch('/api/ollama/chat', {
         method: 'POST',
@@ -1175,7 +1486,7 @@ Answer with valid el.js code only when the user requests UI code. Otherwise answ
           stream: true,
           options: {
             num_ctx: optimalContextSize, // Optimized context window for speed
-            temperature: 0.7, // Balanced creativity/coherence
+            temperature: currentTemperature,
             top_p: 0.9 // Nucleus sampling for quality
           }
         })
@@ -1214,16 +1525,18 @@ Answer with valid el.js code only when the user requests UI code. Otherwise answ
       }
 
       // Add this exchange to conversation history
-      conversationHistory.push({ role: 'user', content: message });
-      conversationHistory.push({ role: 'assistant', content: fullResponse });
+      if (historyEnabled) {
+        conversationHistory.push({ role: 'user', content: message });
+        conversationHistory.push({ role: 'assistant', content: fullResponse });
 
-      // Save to database (async, non-blocking)
-      await saveMessage('user', message);
-      await saveMessage('assistant', fullResponse);
+        // Save to database (async, non-blocking)
+        await saveMessage('user', message);
+        await saveMessage('assistant', fullResponse);
 
-      // Auto-summarize if we have too many messages
-      if (conversationHistory.length >= SUMMARY_THRESHOLD) {
-        await autoSummarize();
+        // Auto-summarize if we have too many messages
+        if (conversationHistory.length >= SUMMARY_THRESHOLD) {
+          await autoSummarize();
+        }
       }
 
       console.log('✓ Conversation updated, history:', conversationHistory.length, 'messages');
@@ -1232,8 +1545,12 @@ Answer with valid el.js code only when the user requests UI code. Otherwise answ
     }
   })
 
+  updateHistorySettingUI();
+
   // Load history on initialization
-  loadConversationHistory();
+  if (historyEnabled) {
+    loadConversationHistory();
+  }
 
   // Add ChatUI element to chat container
   chatContainer.get().appendChild(chatInstance.getElement())

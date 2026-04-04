@@ -19,7 +19,9 @@
     <script type="module">
       import chatLocal from './ollama-chat.js';
 
-      chatLocal();
+            chatLocal({
+                enableHistory: true
+            });
 
     </script>
 </body>
