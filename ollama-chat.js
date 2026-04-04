@@ -214,6 +214,11 @@ export default function OllamaChat(config = {}) {
           flex-direction: column;
         }
 
+        #chat-container {
+          width: 100%;
+          height: 100vh;
+        }
+
         #sidebar-overlay {
           display: none;
           position: fixed;

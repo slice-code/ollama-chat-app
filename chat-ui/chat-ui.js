@@ -19,7 +19,29 @@ const ChatUI = function(config = {}) {
     };
     
     const chatType = config.type || 'full'; // 'full' or 'popup'
-    
+
+    // Inject mobile responsive styles for message bubbles
+    if (!document.getElementById('chat-ui-mobile-style')) {
+        const mobileStyle = document.createElement('style');
+        mobileStyle.id = 'chat-ui-mobile-style';
+        mobileStyle.textContent = `
+            @media (max-width: 768px) {
+                .chat-msg-wrapper {
+                    flex-direction: row !important;
+                }
+                .chat-msg-content {
+                    max-width: 100% !important;
+                    width: 100% !important;
+                    border-radius: 6px !important;
+                }
+                .chat-msg-triangle {
+                    display: none !important;
+                }
+            }
+        `;
+        document.head.appendChild(mobileStyle);
+    }
+
     // Create main container
     const container = el('div')
         .id('chat-app')
@@ -507,6 +529,7 @@ const ChatUI = function(config = {}) {
     // Function to create a message bubble using el.js patterns
     function createMessageBubble(message) {
         const messageWrapper = el('div')
+            .class('chat-msg-wrapper')
             .css({
                 'display': 'flex',
                 'margin-bottom': '15px',
@@ -514,6 +537,7 @@ const ChatUI = function(config = {}) {
             });
 
         const messageContent = el('div')
+            .class('chat-msg-content')
             .css({
                 'max-width': '70%',
                 'padding': '8px 12px',
@@ -548,6 +572,7 @@ const ChatUI = function(config = {}) {
             { left: '-6px', borderRight: `${triangleSize} solid ${triangleColor}` };
         
         const triangle = el('div')
+            .class('chat-msg-triangle')
             .css({
                 'width': '0',
                 'height': '0',
