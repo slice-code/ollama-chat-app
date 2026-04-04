@@ -67,7 +67,9 @@ export default function OllamaChat(config = {}) {
     'border-right': '1px solid #e0e0e0',
     'display': 'flex',
     'flex-direction': 'column',
-    'overflow': 'hidden'
+    'overflow-y': 'auto',
+    'overflow-x': 'hidden',
+    '-webkit-overflow-scrolling': 'touch'
   })
 
   // Custom scrollbar for sidebar
@@ -167,9 +169,14 @@ export default function OllamaChat(config = {}) {
       }
 
       @media (max-width: 768px) {
+        #sidebar,
+        #sidebar * {
+          box-sizing: border-box;
+        }
+
         #mobile-menu-button {
           display: flex;
-          position: absolute;
+          position: fixed;
           top: 22px;
           right: 16px;
           z-index: 1002;
@@ -177,16 +184,21 @@ export default function OllamaChat(config = {}) {
           color: white;
           border: none;
           border-radius: 999px;
-          padding: 10px 14px;
+          width: 42px;
+          height: 42px;
+          padding: 0;
           box-shadow: 0 3px 10px rgba(0,0,0,0.15);
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          font-size: 14px;
+          font-size: 20px;
+          line-height: 1;
+          transition: background 0.2s ease, transform 0.2s ease;
         }
 
         #mobile-menu-button.is-open {
           background: #c62828;
+          transform: rotate(90deg);
         }
 
         #sidebar {
@@ -203,6 +215,9 @@ export default function OllamaChat(config = {}) {
           background: #ffffff;
           display: flex !important;
           visibility: hidden;
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding-bottom: 14px;
         }
 
         #sidebar.open {
@@ -392,7 +407,9 @@ export default function OllamaChat(config = {}) {
       return;
     }
 
-    menuBtn.textContent = isSidebarOpen ? '✕ Tutup' : '☰ Menu';
+    menuBtn.textContent = isSidebarOpen ? '✕' : '☰';
+    menuBtn.setAttribute('aria-label', isSidebarOpen ? 'Tutup sidebar' : 'Buka sidebar');
+    menuBtn.setAttribute('title', isSidebarOpen ? 'Tutup sidebar' : 'Menu');
     menuBtn.classList.toggle('is-open', isSidebarOpen);
   }
 
@@ -434,7 +451,8 @@ export default function OllamaChat(config = {}) {
       'margin-top': '15px',
       'display': 'flex',
       'flex-direction': 'column',
-      'gap': '8px'
+      'gap': '8px',
+      'min-width': '0'
     })
 
   // Refresh button for models
@@ -603,7 +621,8 @@ export default function OllamaChat(config = {}) {
       'gap': '8px',
       'padding': '10px 12px',
       'border-radius': '10px',
-      'background': 'rgba(255,255,255,0.12)'
+      'background': 'rgba(255,255,255,0.12)',
+      'min-width': '0'
     });
 
   const systemPromptLabel = el('label')
@@ -617,6 +636,7 @@ export default function OllamaChat(config = {}) {
     .attr('rows', '4')
     .css({
       'width': '100%',
+      'box-sizing': 'border-box',
       'resize': 'vertical',
       'min-height': '86px',
       'max-height': '180px',
@@ -641,7 +661,8 @@ export default function OllamaChat(config = {}) {
     .css({
       'display': 'flex',
       'gap': '8px',
-      'justify-content': 'flex-end'
+      'justify-content': 'flex-end',
+      'flex-wrap': 'wrap'
     });
 
   const systemPromptResetBtn = el('button')
@@ -877,8 +898,9 @@ export default function OllamaChat(config = {}) {
   const chatList = el('div')
     .id('chat-history-list')
     .css({
-      'flex': '1',
-      'overflow-y': 'auto',
+      'flex': 'unset',
+      'overflow-y': 'visible',
+      'min-height': '180px',
       'padding': '10px'
     })
 
@@ -1191,7 +1213,7 @@ export default function OllamaChat(config = {}) {
 
   const mobileMenuBtn = el('button')
     .id('mobile-menu-button')
-    .text('☰ Menu')
+    .text('☰')
     .click(function() {
       if (!historyEnabled) {
         return;
