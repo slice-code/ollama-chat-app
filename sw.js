@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ollama-chat-v5';
+const CACHE_NAME = 'ollama-chat-v6';
 
 const STATIC_ASSETS = [
   '/',
@@ -31,13 +31,20 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch — network-first for API, cache-first for static
+// Fetch — bypass SW entirely for API calls, cache-first for static assets
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Always go to network for API calls
+  // Do NOT intercept API calls — let browser handle them natively.
+  // Calling event.respondWith(fetch(event.request)) on POST requests with
+  // a streaming body (e.g. /api/ollama/chat) causes "Error in input stream"
+  // because the request body may already be locked/consumed.
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(event.request));
+    return; // fallthrough → browser default network fetch
+  }
+
+  // Only GET requests should be cached
+  if (event.request.method !== 'GET') {
     return;
   }
 
