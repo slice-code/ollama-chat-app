@@ -334,6 +334,111 @@ const ChatUI = function(config = {}) {
         }, duration);
     }
 
+    function appendInlineMarkdown(targetEl, text) {
+        const boldRegex = /\*\*(.+?)\*\*/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = boldRegex.exec(text)) !== null) {
+            const plainText = text.slice(lastIndex, match.index);
+            if (plainText) {
+                targetEl.appendChild(document.createTextNode(plainText));
+            }
+
+            const strong = document.createElement('strong');
+            strong.textContent = match[1];
+            targetEl.appendChild(strong);
+
+            lastIndex = boldRegex.lastIndex;
+        }
+
+        const remaining = text.slice(lastIndex);
+        if (remaining) {
+            targetEl.appendChild(document.createTextNode(remaining));
+        }
+    }
+
+    function renderMarkdownSegment(text, message) {
+        const container = el('div').css({
+            'display': 'flex',
+            'flex-direction': 'column',
+            'gap': '8px',
+            'line-height': '1.6',
+            'color': message.isUser ? '#000' : '#333'
+        });
+
+        if (message.isUser) {
+            container.child(
+                el('div')
+                    .css({ 'white-space': 'pre-wrap' })
+                    .text(text)
+            );
+            return container;
+        }
+
+        const lines = text.split('\n');
+        let i = 0;
+
+        while (i < lines.length) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+                i += 1;
+                continue;
+            }
+
+            if (/^[-*]\s+/.test(trimmed)) {
+                const listEl = document.createElement('ul');
+                listEl.style.margin = '0';
+                listEl.style.paddingLeft = '18px';
+
+                while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+                    const itemText = lines[i].replace(/^\s*[-*]\s+/, '');
+                    const li = document.createElement('li');
+                    li.style.margin = '0 0 4px 0';
+                    appendInlineMarkdown(li, itemText);
+                    listEl.appendChild(li);
+                    i += 1;
+                }
+
+                container.child(el(listEl));
+                continue;
+            }
+
+            const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+            if (headingMatch) {
+                const level = headingMatch[1].length;
+                const heading = document.createElement('div');
+                heading.style.fontWeight = '700';
+                heading.style.margin = '2px 0';
+                heading.style.fontSize = level === 1 ? '16px' : level === 2 ? '15px' : '14px';
+                appendInlineMarkdown(heading, headingMatch[2]);
+                container.child(el(heading));
+                i += 1;
+                continue;
+            }
+
+            const paragraphLines = [];
+            while (
+                i < lines.length &&
+                lines[i].trim() &&
+                !/^\s*[-*]\s+/.test(lines[i]) &&
+                !/^(#{1,3})\s+/.test(lines[i].trim())
+            ) {
+                paragraphLines.push(lines[i].trim());
+                i += 1;
+            }
+
+            const paragraph = document.createElement('div');
+            paragraph.style.whiteSpace = 'normal';
+            appendInlineMarkdown(paragraph, paragraphLines.join(' '));
+            container.child(el(paragraph));
+        }
+
+        return container;
+    }
+
     function renderTextWithCode(text, message) {
         const wrapper = el('div').css({ 'display': 'flex', 'flex-direction': 'column', 'gap': '12px' });
         const codeRegex = /```(\w+)?\n([\s\S]*?)```/g;
@@ -343,11 +448,7 @@ const ChatUI = function(config = {}) {
         while ((match = codeRegex.exec(text)) !== null) {
             const beforeText = text.slice(lastIndex, match.index);
             if (beforeText) {
-                wrapper.child(
-                    el('div')
-                        .css({ 'white-space': 'pre-wrap', 'line-height': '1.6', 'color': message.isUser ? '#000' : '#333' })
-                        .text(beforeText)
-                );
+                wrapper.child(renderMarkdownSegment(beforeText, message));
             }
 
             const codeText = match[2];
@@ -397,11 +498,7 @@ const ChatUI = function(config = {}) {
 
         const restText = text.slice(lastIndex);
         if (restText) {
-            wrapper.child(
-                el('div')
-                    .css({ 'white-space': 'pre-wrap', 'line-height': '1.6', 'color': message.isUser ? '#000' : '#333' })
-                    .text(restText)
-            );
+            wrapper.child(renderMarkdownSegment(restText, message));
         }
 
         return wrapper;
@@ -435,8 +532,8 @@ const ChatUI = function(config = {}) {
         } else if (message.html) {
             // If message has HTML, render as HTML
             messageContent.html(message.html);
-        } else if (typeof message.text === 'string' && /```/.test(message.text)) {
-            // Render code blocks with a copy button
+        } else if (typeof message.text === 'string' && !message.isUser) {
+            // Render assistant messages with markdown-like formatting and code blocks
             messageContent.child(renderTextWithCode(message.text, message));
         } else {
             // Default: render as text
