@@ -7,8 +7,11 @@ const PORT = 3000;
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 const REQUEST_TIMEOUT = 120000; // 120 seconds timeout for Ollama requests
 
-// Import database
+// Import databases and utilities
 const conversationDB = require('./database.js');
+const ragDB = require('./rag-database.js');
+const deviceInfo = require('./device-info.js');
+const mlClassifier = require('./ml-classifier.js');
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -434,6 +437,254 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ============================================
+  // RAG Endpoints
+  // ============================================
+
+  // Get all documents
+  if (req.url === '/api/rag/documents' && req.method === 'GET') {
+    try {
+      const documents = ragDB.getAllDocuments();
+      const info = ragDB.getDocumentsInfo();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, documents, info }));
+    } catch (err) {
+      console.error('❌ Error fetching documents:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // Get single document
+  if (req.url.match(/^\/api\/rag\/documents\/\d+$/) && req.method === 'GET') {
+    try {
+      const docId = req.url.split('/').pop();
+      const document = ragDB.getDocument(docId);
+      if (!document) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Document not found' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, document }));
+    } catch (err) {
+      console.error('❌ Error fetching document:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // Add new document
+  if (req.url === '/api/rag/documents' && req.method === 'POST') {
+    parseBody(req, (body) => {
+      try {
+        const { title, content } = body;
+
+        if (!title || typeof title !== 'string') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Title is required' }));
+          return;
+        }
+
+        if (!content || typeof content !== 'string') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Content is required' }));
+          return;
+        }
+
+        const trimmedTitle = title.trim().substring(0, 200);
+        const trimmedContent = content.trim();
+
+        if (trimmedContent.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Content cannot be empty' }));
+          return;
+        }
+
+        if (trimmedContent.length > 100000) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Content too large (max 100KB)' }));
+          return;
+        }
+
+        const result = ragDB.addDocument(trimmedTitle, trimmedContent);
+        console.log(`✓ Document added: ${trimmedTitle} (ID: ${result.lastInsertRowid})`);
+
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, id: result.lastInsertRowid, title: trimmedTitle }));
+      } catch (err) {
+        console.error('❌ Error adding document:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Update document
+  if (req.url.match(/^\/api\/rag\/documents\/\d+$/) && req.method === 'PUT') {
+    const docId = req.url.split('/').pop();
+    parseBody(req, (body) => {
+      try {
+        const { title, content } = body;
+
+        if (!title || !content) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Title and content are required' }));
+          return;
+        }
+
+        const trimmedTitle = title.trim().substring(0, 200);
+        const trimmedContent = content.trim();
+
+        if (trimmedContent.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Content cannot be empty' }));
+          return;
+        }
+
+        const result = ragDB.updateDocument(docId, trimmedTitle, trimmedContent);
+        if (result.changes === 0) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Document not found' }));
+          return;
+        }
+
+        console.log(`✓ Document updated: ${trimmedTitle} (ID: ${docId})`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, id: docId, title: trimmedTitle }));
+      } catch (err) {
+        console.error('❌ Error updating document:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Delete document
+  if (req.url.match(/^\/api\/rag\/documents\/\d+$/) && req.method === 'DELETE') {
+    try {
+      const docId = req.url.split('/').pop();
+      const result = ragDB.deleteDocument(docId);
+      if (result.changes === 0) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Document not found' }));
+        return;
+      }
+      console.log(`✓ Document deleted (ID: ${docId})`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      console.error('❌ Error deleting document:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // Search documents
+  if (req.url.match(/^\/api\/rag\/search\?q=/) && req.method === 'GET') {
+    try {
+      const url = new URL('http://localhost' + req.url);
+      const query = url.searchParams.get('q');
+
+      if (!query || query.trim().length === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Search query is required' }));
+        return;
+      }
+
+      // Debug: show all documents first
+      const allDocs = ragDB.getAllDocuments();
+      console.log(`📚 Total documents in DB: ${allDocs.length}`);
+      allDocs.forEach((doc, idx) => {
+        console.log(`  [${idx + 1}] ${doc.title}`);
+      });
+
+      const results = ragDB.searchDocuments(query);
+      console.log(`🔍 Search for: "${query}" - Found: ${results.length} results`);
+      results.forEach((doc, idx) => {
+        const relevance = doc.score > 0 ? `(relevance: ${doc.score})` : '';
+        console.log(`  [${idx + 1}] MATCH: ${doc.title} ${relevance}`);
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, query, results, count: results.length }));
+    } catch (err) {
+      console.error('❌ Error searching documents:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // Device info endpoint
+  if (req.url === '/api/device-info' && req.method === 'GET') {
+    try {
+      const info = deviceInfo.getDeviceInfo();
+      console.log('📱 Device info requested');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, data: info }));
+    } catch (err) {
+      console.error('❌ Error getting device info:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // ML Intent Classification endpoint
+  if (req.url === '/api/classify' && req.method === 'POST') {
+    parseBody(req, (body) => {
+      try {
+        const { message } = body;
+        if (!message) throw new Error('Message required');
+        
+        const classification = mlClassifier.classifyMessage(message);
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, classification }));
+      } catch (err) {
+        console.error('❌ Classification error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // MCP Tool Calls endpoint
+  if (req.url === '/api/mcp/call' && req.method === 'POST') {
+    parseBody(req, async (body) => {
+      try {
+        const { tool, args } = body;
+        console.log(`🔧 MCP tool called: ${tool}`, args);
+        
+        let result;
+        
+        switch (tool) {
+          case 'device-info':
+            result = deviceInfo.getDeviceInfo();
+            break;
+          
+          default:
+            throw new Error(`Unknown MCP tool: ${tool}`);
+        }
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, tool, result }));
+      } catch (err) {
+        console.error('❌ MCP call error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   // Static file serving
   let filePath = req.url.split('?')[0];
 
@@ -724,4 +975,14 @@ server.listen(PORT, () => {
   console.log('    POST /api/conversations        - Add message to conversation');
   console.log('    DELETE /api/conversations/:id  - Delete session');
   console.log('    GET  /api/stats                - Get statistics');
+  console.log('');
+  console.log('  RAG - Document Management (SQLite):');
+  console.log('    GET  /api/rag/documents        - List all documents');
+  console.log('    GET  /api/rag/documents/:id    - Get document by ID');
+  console.log('    POST /api/rag/documents        - Add new document');
+  console.log('    PUT  /api/rag/documents/:id    - Update document');
+  console.log('    DELETE /api/rag/documents/:id  - Delete document');
+  console.log('    GET  /api/rag/search?q=<query> - Search documents');
+  console.log('    GET  /api/device-info          - Get system device information (CPU, RAM, GPU, Storage)');
+  console.log('    POST /api/mcp/call             - Call MCP tools (device-info)');
 });

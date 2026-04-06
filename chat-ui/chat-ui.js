@@ -6,10 +6,6 @@ let messages = [];
 let nextId = 1;
 let conversationHistory = []; // Track conversation for context-aware responses
 
-// Performance tracking counters
-let renderMessagesCallCount = 0;
-let appendInlineMarkdownMatchCount = 0;
-
 const ChatUI = function(config = {}) {
     // Default colors
     const colors = {
@@ -191,7 +187,8 @@ const ChatUI = function(config = {}) {
         .css({
             'margin': '0',
             'font-size': '18px',
-            'font-weight': '600'
+            'font-weight': '600',
+            'color': 'white'
         });
 
     const statusText = el('p')
@@ -369,35 +366,51 @@ const ChatUI = function(config = {}) {
     }
 
     function appendInlineMarkdown(targetEl, text) {
-        console.log('📝 appendInlineMarkdown called with text length:', text.length, 'first 50 chars:', text.substring(0, 50));
-        const boldRegex = /\*\*(.+?)\*\*/g;
+        // Single-pass inline markdown: bold, italic, inline code, strikethrough
+        const inlineRegex = /(`[^`]+?`|\*\*(.+?)\*\*|\*(.+?)\*|~~(.+?)~~)/g;
         let lastIndex = 0;
         let match;
-        let matchCount = 0;
 
-        while ((match = boldRegex.exec(text)) !== null) {
-            matchCount++;
+        while ((match = inlineRegex.exec(text)) !== null) {
             const plainText = text.slice(lastIndex, match.index);
             if (plainText) {
                 targetEl.appendChild(document.createTextNode(plainText));
             }
 
-            const strong = document.createElement('strong');
-            strong.textContent = match[1];
-            targetEl.appendChild(strong);
+            const fullMatch = match[0];
+            if (fullMatch.startsWith('`')) {
+                // Inline code
+                const code = document.createElement('code');
+                code.textContent = fullMatch.slice(1, -1);
+                code.style.cssText = 'background:#f0f0f0;padding:1px 5px;border-radius:4px;font-size:0.9em;font-family:monospace';
+                targetEl.appendChild(code);
+            } else if (fullMatch.startsWith('**')) {
+                // Bold
+                const strong = document.createElement('strong');
+                strong.textContent = match[2];
+                targetEl.appendChild(strong);
+            } else if (fullMatch.startsWith('~~')) {
+                // Strikethrough
+                const del = document.createElement('del');
+                del.textContent = match[4];
+                targetEl.appendChild(del);
+            } else if (fullMatch.startsWith('*')) {
+                // Italic
+                const em = document.createElement('em');
+                em.textContent = match[3];
+                targetEl.appendChild(em);
+            }
 
-            lastIndex = boldRegex.lastIndex;
+            lastIndex = inlineRegex.lastIndex;
         }
 
         const remaining = text.slice(lastIndex);
         if (remaining) {
             targetEl.appendChild(document.createTextNode(remaining));
         }
-        console.log(`  ✓ Found ${matchCount} bold patterns`);
     }
 
     function renderMarkdownSegment(text, message) {
-        console.log('🎨 renderMarkdownSegment called, text length:', text.length, 'isUser:', message?.isUser);
         if (!message) {
             message = { isUser: false };  // Null safety
         }
@@ -430,18 +443,52 @@ const ChatUI = function(config = {}) {
                 continue;
             }
 
-            if (/^[-*]\s+/.test(trimmed)) {
+            // Use untrimmed line to match list pattern — consistent with paragraph guard
+            if (/^\s*[-*]\s+/.test(line)) {
                 const listEl = document.createElement('ul');
                 listEl.style.margin = '0';
                 listEl.style.paddingLeft = '18px';
 
-                while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-                    const itemText = lines[i].replace(/^\s*[-*]\s+/, '');
-                    const li = document.createElement('li');
-                    li.style.margin = '0 0 4px 0';
-                    appendInlineMarkdown(li, itemText);
-                    listEl.appendChild(li);
-                    i += 1;
+                while (i < lines.length) {
+                    if (/^\s*[-*]\s+/.test(lines[i])) {
+                        const itemText = lines[i].replace(/^\s*[-*]\s+/, '');
+                        const li = document.createElement('li');
+                        li.style.margin = '0 0 4px 0';
+                        appendInlineMarkdown(li, itemText);
+                        listEl.appendChild(li);
+                        i += 1;
+                    } else if (!lines[i].trim()) {
+                        // Skip blank lines between list items
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                container.child(el(listEl));
+                continue;
+            }
+
+            // Numbered list support (1. item, 2. item, etc.)
+            if (/^\s*\d+\.\s+/.test(line)) {
+                const listEl = document.createElement('ol');
+                listEl.style.margin = '0';
+                listEl.style.paddingLeft = '18px';
+
+                while (i < lines.length) {
+                    if (/^\s*\d+\.\s+/.test(lines[i])) {
+                        const itemText = lines[i].replace(/^\s*\d+\.\s+/, '');
+                        const li = document.createElement('li');
+                        li.style.margin = '0 0 4px 0';
+                        appendInlineMarkdown(li, itemText);
+                        listEl.appendChild(li);
+                        i += 1;
+                    } else if (!lines[i].trim()) {
+                        // Skip blank lines between list items
+                        i += 1;
+                    } else {
+                        break;
+                    }
                 }
 
                 container.child(el(listEl));
@@ -466,10 +513,17 @@ const ChatUI = function(config = {}) {
                 i < lines.length &&
                 lines[i].trim() &&
                 !/^\s*[-*]\s+/.test(lines[i]) &&
+                !/^\s*\d+\.\s+/.test(lines[i]) &&
                 !/^(#{1,3})\s+/.test(lines[i].trim())
             ) {
                 paragraphLines.push(lines[i].trim());
                 i += 1;
+            }
+
+            // Safety: if no branch handled this line, force skip to prevent infinite loop
+            if (paragraphLines.length === 0) {
+                i += 1;
+                continue;
             }
 
             const paragraph = document.createElement('div');
@@ -482,7 +536,6 @@ const ChatUI = function(config = {}) {
     }
 
     function renderTextWithCode(text, message) {
-        console.log('💻 renderTextWithCode called, text length:', text.length);
         try {
         const wrapper = el('div').css({ 'display': 'flex', 'flex-direction': 'column', 'gap': '12px' });
         const codeRegex = /```(\w+)?\n([\s\S]*?)```/g;
@@ -670,45 +723,17 @@ const ChatUI = function(config = {}) {
         setTimeout(async () => {
             let responseText = '';
             let isStreaming = false;
-            let chunkCount = 0;
-            let updateStreamingCallCount = 0;
             let lastMessageElement = null;
             
-            // Function to update only the streaming message without full re-render
+            // Function to update only the streaming message — plain text during streaming
             function updateStreamingMessageOnly() {
-                updateStreamingCallCount++;
-                console.log(`⚡ updateStreamingMessageOnly called [#${updateStreamingCallCount}], text length: ${responseText.length}`);
-                
-                try {
-                    if (!lastMessageElement) return;
-                    
-                    const contentDiv = lastMessageElement.querySelector('.chat-msg-content');
-                    if (!contentDiv) {
-                        console.warn('  ⚠️ Content div not found');
-                        return;
-                    }
-                    
-                    // Only update if text is under 5000 chars to avoid major perf issues
-                    if (responseText.length < 5000) {
-                        try {
-                            contentDiv.innerHTML = '';
-                            const renderedContent = renderTextWithCode(responseText, { isUser: false });
-                            contentDiv.appendChild(renderedContent.get());
-                            console.log('  ✅ Markdown rendered successfully');
-                        } catch (markdownError) {
-                            console.error('  ❌ MARKDOWN RENDER ERROR:', markdownError.message);
-                            console.error('    Stack:', markdownError.stack);
-                            contentDiv.textContent = responseText;
-                            console.log('  ↩️ Fallback: showing plain text instead');
-                        }
-                    } else {
-                        console.warn('  ⚠️ Text too long, showing plain text. Length:', responseText.length);
-                        contentDiv.textContent = responseText.substring(0, 5000) + '...';
-                    }
-                } catch (error) {
-                    console.error('❌ CRITICAL ERROR in updateStreamingMessageOnly:', error);
-                    console.error('   Stack:', error.stack);
-                }
+                if (!lastMessageElement) return;
+                const contentDiv = lastMessageElement.querySelector('.chat-msg-content');
+                if (!contentDiv) return;
+                // During streaming: just show plain text (fast, no DOM rebuild)
+                contentDiv.textContent = responseText;
+                // Auto-scroll to bottom to show streaming message
+                messagesContainer.el.scrollTop = messagesContainer.el.scrollHeight;
             }
             
             // Try to get response from onChat callback if provided
@@ -716,13 +741,9 @@ const ChatUI = function(config = {}) {
                 try {
                     const result = await config.onChat(text, (chunk) => {
                         // Streaming callback - called for each chunk
-                        chunkCount++;
-                        console.log(`🗞️ Chunk #${chunkCount} received, size: ${chunk.length}, content: "${chunk.substring(0, 30)}..."`);
-                        
                         if (!isStreaming) {
                             hideTypingIndicator();
                             isStreaming = true;
-                            console.log('  🎨 Starting streaming response...');
                             // Add empty message that will be filled
                             const botResponse = {
                                 id: nextId++,
@@ -741,10 +762,9 @@ const ChatUI = function(config = {}) {
                         }
                         // Update last message with new chunk
                         responseText += chunk;
-                        console.log(`    🗞️ Total streamed so far: ${responseText.length} bytes`);
                         messages[messages.length - 1].text = responseText;
                         
-                        // OPTIMIZED: update only the streaming message, not full re-render
+                        // Plain text update — fast, no markdown parsing
                         updateStreamingMessageOnly();
                     }, (message) => {
                         // sendQuickReply function - accessible within onChat scope
@@ -756,8 +776,8 @@ const ChatUI = function(config = {}) {
                         hideTypingIndicator();
                         responseText = result;
                     } else {
-                        // Streaming complete
-                        console.log(`✅ Streaming complete! Total chunks: ${chunkCount}, Total size: ${responseText.length} bytes`);
+                        // Streaming complete - do a final full render to restore time/triangle
+                        renderMessages();
                         conversationHistory.push({ role: 'bot', text: responseText });
                         return;
                     }
@@ -987,9 +1007,6 @@ const ChatUI = function(config = {}) {
 
     // Function to render messages using el.js patterns
     function renderMessages() {
-        renderMessagesCallCount++;
-        console.log(`🖼️ renderMessages called [#${renderMessagesCallCount}], messages count: ${messages.length}`);
-        
         // Clear existing content
         messagesContainer.el.innerHTML = '';
 

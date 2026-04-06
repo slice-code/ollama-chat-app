@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ollama-chat-v6';
+const CACHE_NAME = 'ollama-chat-v9';
 
 const STATIC_ASSETS = [
   '/',
@@ -12,6 +12,9 @@ const STATIC_ASSETS = [
   '/icons/icon.svg',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css'
 ];
+
+// Assets that change often — always fetch from network first
+const NETWORK_FIRST_PATTERNS = ['.js', '.html', '/'];
 
 // Install — cache static assets
 self.addEventListener('install', event => {
@@ -31,16 +34,13 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch — bypass SW entirely for API calls, cache-first for static assets
+// Fetch strategy
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Do NOT intercept API calls — let browser handle them natively.
-  // Calling event.respondWith(fetch(event.request)) on POST requests with
-  // a streaming body (e.g. /api/ollama/chat) causes "Error in input stream"
-  // because the request body may already be locked/consumed.
+  // Do NOT intercept API calls
   if (url.pathname.startsWith('/api/')) {
-    return; // fallthrough → browser default network fetch
+    return;
   }
 
   // Only GET requests should be cached
@@ -48,7 +48,25 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Cache-first for static assets
+  // Network-first for JS/HTML — always get latest code, fallback to cache if offline
+  const isNetworkFirst = NETWORK_FIRST_PATTERNS.some(p =>
+    url.pathname.endsWith(p) || url.pathname === '/'
+  );
+
+  if (isNetworkFirst) {
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if (response && response.status === 200) {
+          const toCache = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, toCache));
+        }
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Cache-first for static assets (images, icons, fonts)
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;

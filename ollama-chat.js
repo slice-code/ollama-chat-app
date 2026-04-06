@@ -1,11 +1,245 @@
 import './el.js'
 import ChatUI from './chat-ui/chat-ui.js'
+import RagUI from './rag-ui.js'
 
 const _app = document.getElementById('app');
 const HISTORY_SETTING_KEY = 'ollama_chat_history_enabled';
 const TEMPERATURE_SETTING_KEY = 'ollama_chat_temperature';
 const SYSTEM_PROMPT_SETTING_KEY = 'ollama_chat_system_prompt';
-const DEFAULT_SYSTEM_PROMPT = 'You are a professional assistant that helps users with clear, accurate, and respectful answers.';
+const SELECTED_MODEL_KEY = 'ollama_selected_model';
+const DEFAULT_SYSTEM_PROMPT = `You are a professional assistant that helps users with clear, accurate, and respectful answers.
+
+## CRITICAL FUNCTION CALLING RULE
+When user asks about device/system information, you MUST IMMEDIATELY respond with ONLY the JSON function call below.
+DO NOT explain, DO NOT ask for clarification, DO NOT describe steps. RESPOND WITH ONLY THE JSON.
+
+## Available Functions
+1. **getDeviceInfo** - Get system device information (CPU, RAM, storage, GPU, System info)
+
+## WHEN TO CALL getDeviceInfo (MANDATORY - NO DISCUSSION)
+Call getDeviceInfo IMMEDIATELY when user mentions ANY of these keywords:
+- device, system, cpu, processor, ram, memory, storage, disk, gpu, graphics
+- status, specs, specifications, information, info, config, configuration
+- uptime, cores, temperature, usage, performance, monitor, how much, do i have
+- speed, fast, slow, available, free space, bandwidth, capacity
+
+## REQUIRED Function Calling Format
+RESPOND WITH ONLY THIS JSON - NO OTHER TEXT BEFORE OR AFTER:
+{"function": "getDeviceInfo"}
+
+## Examples (MUST NOT DEVIATE FROM THIS PATTERN)
+User: "What's my RAM?"
+Your response: {"function": "getDeviceInfo"}
+
+User: "Show system info"
+Your response: {"function": "getDeviceInfo"}
+
+User: "How much storage?"
+Your response: {"function": "getDeviceInfo"}
+
+User: "CPU cores?"
+Your response: {"function": "getDeviceInfo"}
+
+RULE: If user question contains any device/system keywords → RESPOND WITH ONLY THE JSON FUNCTION CALL.
+After backend executes the function, you will receive the results and can provide detailed explanation.`;
+
+/**
+ * Check if message should trigger MCP tools (web search, etc)
+ * More aggressive to catch general knowledge questions
+ */
+function shouldUseMCPTools(message) {
+  const lowerMessage = message.toLowerCase();
+  
+  // Explicit search keywords
+  const explicitSearch = ['search', 'cari', 'google', 'find', 'cek', 'lihat'];
+  if (explicitSearch.some(kw => lowerMessage.includes(kw))) {
+    return true;
+  }
+  
+  // Generic curiosity keywords combined with non-device topics
+  const deviceTopics = ['cpu', 'ram', 'memory', 'storage', 'device', 'system', 'gpu', 'cores', 'processor'];
+  const nonDeviceTopics = [
+    // Entertainment
+    'anime', 'manga', 'manhua', 'manhwa', 'film', 'movie', 'serial', 'series', 'drama',
+    'musik', 'music', 'lagu', 'song', 'game', 'gaming', 'gamer',
+    'buku', 'book', 'novel', 'ebook', 'komik', 'comic',
+    // Programming/Tech
+    'python', 'javascript', 'java', 'golang', 'rust', 'c++', 'typescript', 'php', 'ruby',
+    'react', 'vue', 'angular', 'svelte', 'next', 'fastapi', 'express',
+    'docker', 'kubernetes', 'terraform', 'ansible', 'jenkins',
+    'database', 'sql', 'mongodb', 'postgresql', 'mysql', 'redis',
+    'aws', 'azure', 'gcp', 'heroku', 'vercel', 'netlify',
+    // Knowledge/Learning
+    'berita', 'news', 'artikel', 'article', 'tutorial', 'guide', 'course',
+    'recipe', 'resep', 'masak', 'cooking', 'memasak',
+    'travel', 'wisata', 'liburan', 'vacation', 'tour',
+    'sejarah', 'history', 'sains', 'science', 'matematika', 'math', 'fisika', 'kimia',
+    'hukum', 'law', 'kesehatan', 'health', 'medis', 'medical', 'olahraga', 'sport'
+  ];
+  
+  const genericKeywords = ['apa', 'apa itu', 'apa sih', 'bagaimana', 'berapa', 'jelaskan', 'penjelasan', 'informasi', 'tentang', 'siapa', 'kapan', 'dimana'];
+  
+  const isDeviceTopic = deviceTopics.some(t => lowerMessage.includes(t));
+  const isNonDeviceTopic = nonDeviceTopics.some(t => lowerMessage.includes(t));
+  const hasGeneric = genericKeywords.some(kw => lowerMessage.includes(kw));
+  
+  // If generic question about non-device topics → trigger web search
+  if (hasGeneric && isNonDeviceTopic) {
+    return true;
+  }
+  
+  // If explicitly mentions non-device topics → trigger web search
+  if (isNonDeviceTopic) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Call MCP Tool via backend
+ */
+async function callMCPTool(toolName, toolArgs) {
+  try {
+    console.log(`🔧 Calling MCP tool: ${toolName}`, toolArgs);
+    
+    const response = await fetch('/api/mcp/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tool: toolName,
+        args: toolArgs
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('❌ MCP tool error:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Format MCP search results
+ */
+function formatMCPResults(toolName, toolResults) {
+  if (toolName === 'web-search') {
+    return formatSearchResults(toolResults);
+  }
+  return JSON.stringify(toolResults, null, 2);
+}
+
+/**
+ * Format search results
+ */
+function formatSearchResults(searchData) {
+  if (searchData.error) {
+    return `**Search Error:** ${searchData.error}`;
+  }
+
+  let output = `🔍 **Web Search Results**\n\n`;
+  
+  if (searchData.results && searchData.results.length > 0) {
+    searchData.results.forEach((result, idx) => {
+      output += `**${idx + 1}. ${result.title}**\n`;
+      output += `📎 ${result.url}\n`;
+      output += `${result.description}\n\n`;
+    });
+  } else {
+    output += 'No results found.';
+  }
+  
+  return output;
+}
+
+/**
+ * Format device info for readable output
+ */
+function formatDeviceInfo(deviceData) {
+  let output = '📱 **Device Information**\n\n';
+  
+  if (deviceData.system) {
+    output += '**System:**\n';
+    output += `- OS: ${deviceData.system.os} (${deviceData.system.arch})\n`;
+    output += `- Hostname: ${deviceData.system.hostname}\n`;
+    output += `- Uptime: ${deviceData.system.uptimeFormatted}\n\n`;
+  }
+  
+  if (deviceData.cpu) {
+    output += '**CPU:**\n';
+    output += `- Model: ${deviceData.cpu.model}\n`;
+    output += `- Cores: ${deviceData.cpu.cores}\n`;
+    output += `- Speed: ${deviceData.cpu.speed} MHz\n`;
+    output += `- Usage: ${deviceData.cpu.usage}\n\n`;
+  }
+  
+  if (deviceData.memory) {
+    output += '**Memory (RAM):**\n';
+    output += `- Total: ${deviceData.memory.total}\n`;
+    output += `- Used: ${deviceData.memory.used}\n`;
+    output += `- Free: ${deviceData.memory.free}\n`;
+    output += `- Usage: ${deviceData.memory.usage}\n\n`;
+  }
+  
+  if (deviceData.storage && !deviceData.storage.error) {
+    output += '**Storage:**\n';
+    output += `- Total: ${deviceData.storage.total}\n`;
+    output += `- Used: ${deviceData.storage.used}\n`;
+    output += `- Available: ${deviceData.storage.available}\n`;
+    output += `- Usage: ${deviceData.storage.usage}\n\n`;
+  }
+  
+  if (deviceData.gpu) {
+    output += '**GPU:**\n';
+    output += `- Type: ${deviceData.gpu.type || 'Not detected'}\n`;
+    if (deviceData.gpu.memory) output += `- Memory: ${deviceData.gpu.memory}\n`;
+    if (deviceData.gpu.usage) output += `- Usage: ${deviceData.gpu.usage}\n`;
+  }
+  
+  return output;
+}
+
+/**
+ * Check if message is SPECIFICALLY about device/system info
+ * More restrictive to avoid false positives
+ */
+function shouldCallDeviceFunction(message) {
+  const lowerMessage = message.toLowerCase();
+  
+  // Specific device-related keywords (high confidence)
+  const deviceKeywords = [
+    'device', 'system', 'cpu', 'processor', 'ram', 'memory', 'storage', 'disk', 'gpu', 'graphics',
+    'cores', 'uptime', 'temperature', 'bandwidth', 'capacity', 'motherboard', 'partition',
+    'berapa ram', 'berapa cpu', 'berapa core', 'cpu saya', 'ram saya', 'memory saya',
+    'spek pc', 'spek device', 'spek komputer', 'status device', 'status system'
+  ];
+  
+  // If contains specific device keywords, YES trigger device function
+  if (deviceKeywords.some(keyword => lowerMessage.includes(keyword))) {
+    return true;
+  }
+  
+  // Otherwise, generic keywords only if NO web-search context
+  const genericKeywords = ['apa', 'berapa', 'bagaimana', 'informasi', 'info', 'tahu', 'status', 'config'];
+  const webSearchKeywords = ['berita', 'artikel', 'tutorial', 'cara', 'python', 'javascript', 'anime', 'film', 'musik', 'game', 'buku'];
+  
+  const hasGeneric = genericKeywords.some(kw => lowerMessage.includes(kw));
+  const hasWebSearch = webSearchKeywords.some(kw => lowerMessage.includes(kw));
+  
+  // If has both generic + web-search keywords, it's web search NOT device
+  // e.g. "apa tentang anime" = web search (device = false)
+  if (hasGeneric && hasWebSearch) {
+    return false;
+  }
+  
+  return false;
+}
+
 
 function createSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -447,7 +681,8 @@ export default function OllamaChat(config = {}) {
     .css({
       'margin': '0',
       'font-size': '20px',
-      'font-weight': '600'
+      'font-weight': '600',
+      'color': 'white'
     })
 
   // Model selector container
@@ -540,6 +775,8 @@ export default function OllamaChat(config = {}) {
       console.log('Using model:', selectedModel);
       // Store selected model for use in onChat callback
       window.selectedOllamaModel = selectedModel;
+      // Persist to localStorage
+      localStorage.setItem(SELECTED_MODEL_KEY, selectedModel);
     });
 
   // Loading indicator for models
@@ -800,7 +1037,154 @@ export default function OllamaChat(config = {}) {
       console.log('✅ New chat session created:', newSessionId);
     })
 
-  sidebarHeader.child([sidebarTitle, modelSelectorContainer, newChatBtn])
+  const updateCacheBtn = el('button')
+    .html('<i class="fas fa-sync-alt"></i> Update Cache')
+    .css({
+      'margin-top': '8px',
+      'padding': '10px 16px',
+      'background': 'rgba(255,255,255,0.1)',
+      'color': 'white',
+      'border': '1px solid rgba(255,255,255,0.2)',
+      'border-radius': '8px',
+      'cursor': 'pointer',
+      'font-size': '13px',
+      'display': 'flex',
+      'align-items': 'center',
+      'gap': '8px',
+      'transition': 'background 0.2s'
+    })
+    .hover(
+      function() { this.style.background = 'rgba(255,255,255,0.25)'; },
+      function() { this.style.background = 'rgba(255,255,255,0.1)'; }
+    )
+    .click(async function() {
+      this.disabled = true;
+      this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+      try {
+        // Delete all caches
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+        // Unregister and re-register SW
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+        this.innerHTML = '<i class="fas fa-check"></i> Done! Reloading...';
+        setTimeout(() => location.reload(true), 500);
+      } catch (err) {
+        console.error('Cache update failed:', err);
+        this.innerHTML = '<i class="fas fa-sync-alt"></i> Update Cache';
+        this.disabled = false;
+      }
+    })
+
+  // RAG UI state management
+  let ragUIInstance = null;
+  let isRagPageShown = false;
+
+  // Function to toggle between Chat and RAG pages
+  function toggleRagPage(show) {
+    console.log(`🔄 toggleRagPage called with show=${show}`);
+    isRagPageShown = show;
+    const chatContainer = document.getElementById('chat-container');
+    let ragWrapperEl = document.getElementById('rag-wrapper');
+
+    if (show) {
+      // Show RAG page, hide Chat
+      if (chatContainer) {
+        // Use opacity + pointer-events for more reliable hiding
+        chatContainer.style.opacity = '0';
+        chatContainer.style.pointerEvents = 'none';
+        chatContainer.style.position = 'absolute';
+        chatContainer.style.left = '-9999px';
+      }
+      
+      if (!ragWrapperEl) {
+        // First time - create RAG UI
+        console.log('📝 Creating RAG UI for first time...');
+        const ragWrapper = el('div')
+          .id('rag-wrapper')
+          .css({
+            'width': '100%',
+            'height': '100%',
+            'display': 'flex',
+            'flex-direction': 'column',
+            'overflow': 'hidden',
+            'background': 'white',
+            'opacity': '1',
+            'pointer-events': 'auto',
+            'position': 'relative',
+            'left': 'auto'
+          });
+        const ragWrapperDOM = ragWrapper.get();
+        chatContainer.parentNode.insertBefore(ragWrapperDOM, chatContainer.nextSibling);
+        
+        ragUIInstance = RagUI({
+          container: ragWrapperDOM,
+          onBack: () => {
+            console.log('🔙 Back from RAG - hiding RAG page');
+            toggleRagPage(false);
+            ragBtn.el.style.background = '#6B5EAE';
+          }
+        });
+      } else {
+        // Already exists - just show
+        console.log('📂 RAG UI already exists, showing...');
+        ragWrapperEl.style.opacity = '1';
+        ragWrapperEl.style.pointerEvents = 'auto';
+        ragWrapperEl.style.position = 'relative';
+        ragWrapperEl.style.left = 'auto';
+        if (ragUIInstance && ragUIInstance.refresh) {
+          console.log('🔄 Refreshing RAG UI...');
+          ragUIInstance.refresh();
+        }
+      }
+      ragBtn.el.style.background = '#5A4E9E';
+    } else {
+      // Show Chat page, hide RAG
+      console.log('💬 Showing Chat page...');
+      if (chatContainer) {
+        chatContainer.style.opacity = '1';
+        chatContainer.style.pointerEvents = 'auto';
+        chatContainer.style.position = 'relative';
+        chatContainer.style.left = 'auto';
+      }
+      ragWrapperEl = document.getElementById('rag-wrapper');
+      if (ragWrapperEl) {
+        ragWrapperEl.style.opacity = '0';
+        ragWrapperEl.style.pointerEvents = 'none';
+        ragWrapperEl.style.position = 'absolute';
+        ragWrapperEl.style.left = '-9999px';
+      }
+      ragBtn.el.style.background = '#6B5EAE';
+    }
+  }
+
+  // RAG Button
+  const ragBtn = el('button')
+    .html('<i class="fas fa-book"></i> Knowledge Base (RAG)')
+    .css({
+      'margin-top': '8px',
+      'padding': '10px 16px',
+      'background': '#6B5EAE',
+      'color': 'white',
+      'border': 'none',
+      'border-radius': '8px',
+      'cursor': 'pointer',
+      'font-size': '13px',
+      'display': 'flex',
+      'align-items': 'center',
+      'gap': '8px',
+      'transition': 'background 0.2s'
+    })
+    .hover(
+      function() { this.style.background = '#5A4E9E'; },
+      function() { this.style.background = '#6B5EAE'; }
+    )
+    .click(() => {
+      console.log(`📚 RAG button clicked, isRagPageShown=${isRagPageShown}`);
+      toggleRagPage(!isRagPageShown);
+    })
+
+  sidebarHeader.child([sidebarTitle, modelSelectorContainer, newChatBtn, ragBtn, updateCacheBtn])
 
   // Fetch available models from Ollama
   async function loadModels() {
@@ -872,11 +1256,15 @@ export default function OllamaChat(config = {}) {
         }
       });
 
-      // Select default model
-      if (defaultModel) {
-        modelSelect.el.value = defaultModel;
-        window.selectedOllamaModel = defaultModel;
-        console.log('✅ Default model selected:', defaultModel);
+      // Select model - prefer saved model from localStorage, fallback to first model
+      const savedModel = localStorage.getItem(SELECTED_MODEL_KEY);
+      const modelToSelect = (savedModel && models.some(m => m.name === savedModel)) ? savedModel : defaultModel;
+      
+      if (modelToSelect) {
+        modelSelect.el.value = modelToSelect;
+        window.selectedOllamaModel = modelToSelect;
+        const source = (savedModel && models.some(m => m.name === savedModel)) ? 'saved' : 'default';
+        console.log(`✅ ${source} model selected:`, modelToSelect);
       }
       
       console.log(`✅ Loaded ${models.length} models from Ollama`);
@@ -1580,6 +1968,101 @@ export default function OllamaChat(config = {}) {
       console.log('📝 Current conversationHistory length:', conversationHistory.length);
       console.log('📋 Current session ID:', currentSessionId);
       
+      // 🤖 ML-Based Intent Classification
+      let classification;
+      try {
+        const classifyResponse = await fetch('/api/classify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+        
+        if (classifyResponse.ok) {
+          const classifyData = await classifyResponse.json();
+          classification = classifyData.classification;
+          console.log(`🤖 ML Classification: ${classification.intent} (confidence: ${classification.confidence}, score: ${classification.score.toFixed(4)})`);
+        }
+      } catch (error) {
+        console.warn('⚠️ ML classification not available:', error.message);
+      }
+      
+      // Handle device info intent
+      if (classification?.shouldCallDevice) {
+        console.log('🎯 Device question detected! Auto-executing getDeviceInfo...');
+        
+        try {
+          // Fetch actual device info
+          const deviceResponse = await fetch('/api/device-info');
+          if (!deviceResponse.ok) throw new Error('Failed to fetch device info');
+          
+          const deviceData = await deviceResponse.json();
+          if (!deviceData.success) throw new Error(deviceData.error);
+          
+          // Format the results
+          const formattedDeviceInfo = formatDeviceInfo(deviceData.data);
+          console.log('📱 Device info retrieved, streaming response...');
+          
+          // Stream the formatted device info to user
+          streamChunk(formattedDeviceInfo);
+          
+          // Store in conversation history
+          conversationHistory.push({ role: 'user', content: message });
+          conversationHistory.push({ role: 'assistant', content: formattedDeviceInfo });
+          
+          // Save to database
+          await saveMessage('user', message);
+          await saveMessage('assistant', formattedDeviceInfo);
+          
+          console.log('✓ Device info response complete');
+          return formattedDeviceInfo;
+          
+        } catch (error) {
+          console.error('❌ Error fetching device info:', error.message);
+          const errorMsg = `**Error:** Unable to retrieve device information - ${error.message}`;
+          streamChunk(errorMsg);
+          
+          conversationHistory.push({ role: 'user', content: message });
+          conversationHistory.push({ role: 'assistant', content: errorMsg });
+          await saveMessage('user', message);
+          await saveMessage('assistant', errorMsg);
+          
+          return errorMsg;
+        }
+      }
+      
+      // Search RAG documents for context
+      let augmentedSystemPrompt = currentSystemPrompt;
+      try {
+        const searchResponse = await fetch(`/api/rag/search?q=${encodeURIComponent(message)}`);
+        if (searchResponse.ok) {
+          const ragData = await searchResponse.json();
+          if (ragData.success && ragData.results.length > 0) {
+            // Format retrieved documents as context with EXPLICIT prioritization
+            const docContext = ragData.results.slice(0, 3).map((doc, idx) => 
+              `[Document ${idx + 1}: ${doc.title}]\n${doc.content}`
+            ).join('\n\n');
+            
+            augmentedSystemPrompt = currentSystemPrompt + `
+
+=== KNOWLEDGE BASE CONTEXT (AUTHORITATIVE SOURCE) ===
+IMPORTANT INSTRUCTIONS:
+1. You MUST prioritize the following documents when answering the user's question
+2. If the answer can be found in these documents, use ONLY information from them
+3. Do NOT use outdated or general knowledge if relevant documents are provided
+4. Always cite which document your answer comes from
+5. If the documents don't contain the answer, explicitly state "This information is not available in the knowledge base"
+
+DOCUMENTS:
+${docContext}
+
+========================================================`;
+            console.log(`🔍 RAG: Found ${ragData.results.length} relevant documents for query: "${message.substring(0, 50)}..."`);
+          }
+        }
+      } catch (ragErr) {
+        console.warn('⚠️ RAG search not available:', ragErr.message);
+      }
+      
       // CRITICAL: Always re-fetch conversation history to ensure we're using the correct session's data
       // This is essential when switching between chats to avoid mixing contexts
       if (historyEnabled) {
@@ -1612,9 +2095,9 @@ export default function OllamaChat(config = {}) {
         console.log('📚 Context messages preview:', contextMessages.slice(-2));
       }
       
-      // Add system prompt and current message
+      // Add system prompt (augmented with RAG) and current message
       const messagesPayload = [
-        { role: 'system', content: currentSystemPrompt },
+        { role: 'system', content: augmentedSystemPrompt },
         ...contextMessages,
         { role: 'user', content: message }
       ];
@@ -1638,7 +2121,8 @@ export default function OllamaChat(config = {}) {
           options: {
             num_ctx: optimalContextSize, // Optimized context window for speed
             temperature: currentTemperature,
-            top_p: 0.9 // Nucleus sampling for quality
+            top_p: 0.9, // Nucleus sampling for quality
+            num_predict: 1500 // Max tokens to prevent looping (5000 chars ≈ 1500 tokens)
           }
         }),
         signal: undefined // Placeholder for AbortSignal if needed
@@ -1699,9 +2183,16 @@ export default function OllamaChat(config = {}) {
                 const content = data.message.content;
                 fullResponse += content;
                 streamChunk(content);
+                // DEBUG: Log chunks to detect repetition
+                if (content.length < 100) {
+                  console.log(`📦 Chunk: "${content}"`);
+                } else {
+                  console.log(`📦 Chunk: ${content.length} chars`);
+                }
               }
               // Only set done flag on completing the stream, don't break early
               if (data.done === true) {
+                console.log(`✅ Ollama done flag received. Total length: ${fullResponse.length}`);
                 isStreamDone = true;
               }
             } catch (e) {
@@ -1717,6 +2208,9 @@ export default function OllamaChat(config = {}) {
           throw readError;
         }
       }
+
+      // fullResponse now contains complete streaming response
+      // No function call processing needed (removed MCP web-search)
 
       // Always store chat locally/database; historyEnabled controls only context sent to model.
       conversationHistory.push({ role: 'user', content: message });
