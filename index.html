@@ -33,11 +33,174 @@
 
         .highlight { background-color: #fbbf24 !important; }
         #output { white-space: pre-wrap; }
+
+        /* Animations */
+        @keyframes bounce {
+          0%, 80%, 100% {
+            transform: scale(0);
+            opacity: 0.5;
+          }
+          40% {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+
+        @keyframes thinkingBounce {
+          0%, 80%, 100% {
+            transform: translateY(0);
+            opacity: 0.6;
+          }
+          40% {
+            transform: translateY(-6px);
+            opacity: 1;
+          }
+        }
+
+        strong, b { 
+          font-weight: 700; 
+        }
+
+        em, i { 
+          font-style: italic; 
+        }
+
+        del {
+          text-decoration: line-through;
+          opacity: 0.7;
+        }
+
+        code {
+          background: #f0f0f0;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-family: 'Courier New', monospace;
+          font-size: 0.9em;
+        }
+
+        /* Heading Styling */
+        h1, h2, h3, h4, h5, h6 {
+          color: #1a1a1a;
+          line-height: 1.4;
+        }
+
+        h1 {
+          font-size: 24px;
+          margin: 16px 0 12px 0;
+          border-bottom: 2px solid #1e88e5;
+          padding-bottom: 8px;
+          display: inline-block;
+        }
+
+        h2 {
+          font-size: 20px;
+          margin: 14px 0 10px 0;
+        }
+
+        h3, h4, h5, h6 {
+          margin: 10px 0 6px 0;
+          padding-left: 12px;
+          border-left: 3px solid #1e88e5;
+        }
+
+        h3 {
+          font-size: 18px;
+        }
+
+        h4 {
+          font-size: 16px;
+        }
+
+        a {
+          color: #1e88e5;
+          text-decoration: underline;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          word-break: break-word;
+          padding: 2px 4px;
+          border-radius: 3px;
+          background: rgba(30, 136, 229, 0.05);
+        }
+
+        a:hover {
+          color: #fff;
+          background: #1e88e5;
+          text-decoration: none;
+          box-shadow: 0 2px 6px rgba(30, 136, 229, 0.3);
+        }
+
+        a:active {
+          transform: scale(0.98);
+        }
+
+        blockquote {
+          border-left: 3px solid #ccc;
+          padding-left: 12px;
+          margin-left: 0;
+          font-style: italic;
+          color: #666;
+        }
+
+        ul, ol {
+          margin: 8px 0;
+          padding-left: 24px;
+        }
+
+        li {
+          margin: 4px 0 6px 0;
+        }
+
+        hr {
+          margin: 12px 0;
+          border: none;
+          border-top: 1px solid #ddd;
+        }
+
+        pre {
+          background: #1e1e1e;
+          border: 1px solid #3e3e42;
+          border-radius: 8px;
+          overflow-x: auto;
+          overflow-y: auto;
+          max-height: 400px;
+          line-height: 1.5;
+          max-width: 100%;
+        }
+
+        pre code {
+          background: transparent;
+          padding: 0;
+          color: #d4d4d4;
+          font-family: 'Courier New', 'SFMono-Regular', monospace;
+          display: block;
+        }
+
+        /* Scrollbar styling for code blocks */
+        pre::-webkit-scrollbar {
+          height: 6px;
+          width: 6px;
+        }
+
+        pre::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.1);
+          border-radius: 3px;
+        }
+
+        pre::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 3px;
+        }
+
+        pre::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.3);
+        }
     </style>
 </head>
 
 <body>
     <div id="app"></div>
+    <!-- Socket.IO client library -->
+    <script src="/socket.io/socket.io.js"></script>
     <script type="module">
       import chatLocal from './ollama-chat.js';
 

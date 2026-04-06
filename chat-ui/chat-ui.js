@@ -6,6 +6,10 @@ let messages = [];
 let nextId = 1;
 let conversationHistory = []; // Track conversation for context-aware responses
 
+// Performance tracking counters
+let renderMessagesCallCount = 0;
+let appendInlineMarkdownMatchCount = 0;
+
 const ChatUI = function(config = {}) {
     // Default colors
     const colors = {
@@ -365,11 +369,14 @@ const ChatUI = function(config = {}) {
     }
 
     function appendInlineMarkdown(targetEl, text) {
+        console.log('📝 appendInlineMarkdown called with text length:', text.length, 'first 50 chars:', text.substring(0, 50));
         const boldRegex = /\*\*(.+?)\*\*/g;
         let lastIndex = 0;
         let match;
+        let matchCount = 0;
 
         while ((match = boldRegex.exec(text)) !== null) {
+            matchCount++;
             const plainText = text.slice(lastIndex, match.index);
             if (plainText) {
                 targetEl.appendChild(document.createTextNode(plainText));
@@ -386,9 +393,14 @@ const ChatUI = function(config = {}) {
         if (remaining) {
             targetEl.appendChild(document.createTextNode(remaining));
         }
+        console.log(`  ✓ Found ${matchCount} bold patterns`);
     }
 
     function renderMarkdownSegment(text, message) {
+        console.log('🎨 renderMarkdownSegment called, text length:', text.length, 'isUser:', message?.isUser);
+        if (!message) {
+            message = { isUser: false };  // Null safety
+        }
         const container = el('div').css({
             'display': 'flex',
             'flex-direction': 'column',
@@ -470,6 +482,8 @@ const ChatUI = function(config = {}) {
     }
 
     function renderTextWithCode(text, message) {
+        console.log('💻 renderTextWithCode called, text length:', text.length);
+        try {
         const wrapper = el('div').css({ 'display': 'flex', 'flex-direction': 'column', 'gap': '12px' });
         const codeRegex = /```(\w+)?\n([\s\S]*?)```/g;
         let lastIndex = 0;
@@ -478,7 +492,12 @@ const ChatUI = function(config = {}) {
         while ((match = codeRegex.exec(text)) !== null) {
             const beforeText = text.slice(lastIndex, match.index);
             if (beforeText) {
-                wrapper.child(renderMarkdownSegment(beforeText, message));
+                try {
+                    wrapper.child(renderMarkdownSegment(beforeText, message));
+                } catch (segmentError) {
+                    console.error('  Error rendering markdown segment:', segmentError.message);
+                    wrapper.child(el('div').text(beforeText));
+                }
             }
 
             const codeText = match[2];
@@ -528,10 +547,21 @@ const ChatUI = function(config = {}) {
 
         const restText = text.slice(lastIndex);
         if (restText) {
-            wrapper.child(renderMarkdownSegment(restText, message));
+            try {
+                wrapper.child(renderMarkdownSegment(restText, message));
+            } catch (segmentError) {
+                console.error('  Error rendering final markdown segment:', segmentError.message);
+                wrapper.child(el('div').text(restText));
+            }
         }
 
         return wrapper;
+        } catch (error) {
+            console.error('❌ ERROR in renderTextWithCode:', error.message);
+            console.error('   Stack:', error.stack);
+            const fallback = el('div').text(text.substring(0, 500));
+            return fallback;
+        }
     }
 
     // Function to create a message bubble using el.js patterns
@@ -640,15 +670,59 @@ const ChatUI = function(config = {}) {
         setTimeout(async () => {
             let responseText = '';
             let isStreaming = false;
+            let chunkCount = 0;
+            let updateStreamingCallCount = 0;
+            let lastMessageElement = null;
+            
+            // Function to update only the streaming message without full re-render
+            function updateStreamingMessageOnly() {
+                updateStreamingCallCount++;
+                console.log(`⚡ updateStreamingMessageOnly called [#${updateStreamingCallCount}], text length: ${responseText.length}`);
+                
+                try {
+                    if (!lastMessageElement) return;
+                    
+                    const contentDiv = lastMessageElement.querySelector('.chat-msg-content');
+                    if (!contentDiv) {
+                        console.warn('  ⚠️ Content div not found');
+                        return;
+                    }
+                    
+                    // Only update if text is under 5000 chars to avoid major perf issues
+                    if (responseText.length < 5000) {
+                        try {
+                            contentDiv.innerHTML = '';
+                            const renderedContent = renderTextWithCode(responseText, { isUser: false });
+                            contentDiv.appendChild(renderedContent.get());
+                            console.log('  ✅ Markdown rendered successfully');
+                        } catch (markdownError) {
+                            console.error('  ❌ MARKDOWN RENDER ERROR:', markdownError.message);
+                            console.error('    Stack:', markdownError.stack);
+                            contentDiv.textContent = responseText;
+                            console.log('  ↩️ Fallback: showing plain text instead');
+                        }
+                    } else {
+                        console.warn('  ⚠️ Text too long, showing plain text. Length:', responseText.length);
+                        contentDiv.textContent = responseText.substring(0, 5000) + '...';
+                    }
+                } catch (error) {
+                    console.error('❌ CRITICAL ERROR in updateStreamingMessageOnly:', error);
+                    console.error('   Stack:', error.stack);
+                }
+            }
             
             // Try to get response from onChat callback if provided
             if (config.onChat && typeof config.onChat === 'function') {
                 try {
                     const result = await config.onChat(text, (chunk) => {
                         // Streaming callback - called for each chunk
+                        chunkCount++;
+                        console.log(`🗞️ Chunk #${chunkCount} received, size: ${chunk.length}, content: "${chunk.substring(0, 30)}..."`);
+                        
                         if (!isStreaming) {
                             hideTypingIndicator();
                             isStreaming = true;
+                            console.log('  🎨 Starting streaming response...');
                             // Add empty message that will be filled
                             const botResponse = {
                                 id: nextId++,
@@ -657,11 +731,21 @@ const ChatUI = function(config = {}) {
                                 time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                             };
                             messages.push(botResponse);
+                            // Initial render to add the message element
+                            renderMessages();
+                            // Get reference to the newly added message element
+                            const msgElements = document.querySelectorAll('.chat-msg-wrapper');
+                            if (msgElements.length > 0) {
+                                lastMessageElement = msgElements[msgElements.length - 1];
+                            }
                         }
                         // Update last message with new chunk
                         responseText += chunk;
+                        console.log(`    🗞️ Total streamed so far: ${responseText.length} bytes`);
                         messages[messages.length - 1].text = responseText;
-                        renderMessages();
+                        
+                        // OPTIMIZED: update only the streaming message, not full re-render
+                        updateStreamingMessageOnly();
                     }, (message) => {
                         // sendQuickReply function - accessible within onChat scope
                         window.sendQuickReply(message);
@@ -673,6 +757,7 @@ const ChatUI = function(config = {}) {
                         responseText = result;
                     } else {
                         // Streaming complete
+                        console.log(`✅ Streaming complete! Total chunks: ${chunkCount}, Total size: ${responseText.length} bytes`);
                         conversationHistory.push({ role: 'bot', text: responseText });
                         return;
                     }
@@ -902,6 +987,9 @@ const ChatUI = function(config = {}) {
 
     // Function to render messages using el.js patterns
     function renderMessages() {
+        renderMessagesCallCount++;
+        console.log(`🖼️ renderMessages called [#${renderMessagesCallCount}], messages count: ${messages.length}`);
+        
         // Clear existing content
         messagesContainer.el.innerHTML = '';
 

@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/slice-code/chat-ui#readme",
   "dependencies": {
-    "better-sqlite3": "^12.8.0"
+    "better-sqlite3": "^12.8.0",
+    "socket.io": "^4.7.2"
   }
 }

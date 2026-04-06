@@ -69,6 +69,10 @@ const el = function (elementDOMP) {
         this.el.setAttribute('rel', a);
         return this;
     }
+    obj.attr = function (name, value) {
+        this.el.setAttribute(name, value);
+        return this;
+    }
 
     obj.loopFunc = function (callback, time = 1000) {
         var gopy = this.el;

@@ -806,7 +806,14 @@ export default function OllamaChat(config = {}) {
   async function loadModels() {
     try {
       console.log('🔄 Fetching models from Ollama...');
-      const response = await fetch('/api/ollama/tags');
+      const modelsController = new AbortController();
+      const modelsTimeout = setTimeout(() => modelsController.abort(), 10000); // 10s timeout
+      
+      const response = await fetch('/api/ollama/tags', {
+        signal: modelsController.signal
+      });
+      
+      clearTimeout(modelsTimeout);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -912,13 +919,15 @@ export default function OllamaChat(config = {}) {
 
   // Use event delegation for better performance and avoid duplicate handlers
   let isLoadingSession = false; // Prevent rapid multiple loads
+  let sessionLoadNextId = 0; // Prevent stale callbacks
   
-  chatList.el.addEventListener('click', async function(e) {
+  const clickHandler = async function(e) {
     const chatItemEl = e.target.closest('[data-session-id]');
     if (!chatItemEl) return;
     
     const sessionId = chatItemEl.dataset.sessionId;
     const sessionTitle = chatItemEl.dataset.sessionTitle;
+    const clickId = ++sessionLoadNextId; // Issue new ID for this click
     
     // Prevent rapid multiple clicks
     if (isLoadingSession) {
@@ -927,14 +936,8 @@ export default function OllamaChat(config = {}) {
     }
     
     // Check if this is different from current active session
-    // Only block if the session is actually in DB and already selected
     const currentActiveSession = localStorage.getItem('chat_session_id');
-    console.log('🖱️ Click handler check:');
-    console.log('  - Clicked session:', sessionId);
-    console.log('  - Current active from localStorage:', currentActiveSession);
-    console.log('  - Session in DB?', sessionInDb);
-    console.log('  - Match?', sessionId === currentActiveSession);
-    console.log('  - Should block?', sessionId === currentActiveSession && sessionInDb);
+    console.log('🖱️ Click handler check:', { clickId, sessionId, currentActiveSession, sessionInDb });
     
     if (sessionId && sessionId === currentActiveSession && sessionInDb) {
       console.log('⚠️ Session already active (in DB):', sessionId);
@@ -963,6 +966,11 @@ export default function OllamaChat(config = {}) {
       const response = await fetch(`/api/conversations?session_id=${sessionId}`);
       const data = await response.json();
       
+      if (clickId !== sessionLoadNextId) {
+        console.log('⚠️ Stale request ignored (newer click came in)');
+        return; // Ignore stale result
+      }
+      
       if (data.success && data.history && data.history.length > 0) {
         // Update conversation history
         conversationHistory = data.history.map(msg => ({
@@ -983,6 +991,7 @@ export default function OllamaChat(config = {}) {
         })));
       } else {
         conversationHistory = [];
+        conversationSummary = '';
         chatInstance.resetMessages();
         console.log('🆕 Switched to empty session');
         // This is a new/empty session, so next message will be first
@@ -993,19 +1002,31 @@ export default function OllamaChat(config = {}) {
       console.error('Failed to load session history:', error);
     } finally {
       // Re-render chat history list to update highlight AFTER everything is loaded
-      await loadChatHistory();
+      if (clickId === sessionLoadNextId) {
+        await loadChatHistory();
+      }
       // Hide mobile sidebar after selection
       toggleMobileSidebar(false);
       // Reset loading flag
       isLoadingSession = false;
     }
-  });
+  };
+  
+  chatList.el.addEventListener('click', clickHandler);
 
   // Load chat history from database
   async function loadChatHistory() {
     try {
       console.log('📋 Loading chat history...');
-      const response = await fetch('/api/conversations');
+      const historyController = new AbortController();
+      const historyTimeout = setTimeout(() => historyController.abort(), 15000); // 15s timeout
+      
+      const response = await fetch('/api/conversations', {
+        signal: historyController.signal
+      });
+      
+      clearTimeout(historyTimeout);
+      
       const data = await response.json();
       
       if (data.success && data.sessions && data.sessions.length > 0) {
@@ -1549,6 +1570,8 @@ export default function OllamaChat(config = {}) {
     botIcon: '🦙',
     primaryColor: '#25D366',
     secondaryColor: '#128C7E',
+    sessionId: currentSessionId,  // Pass session ID to ChatUI for Socket.IO
+    model: 'llama3.2:latest',     // Default model
     onChat: async function(message, streamChunk, sendQuickReply) {
       // Get selected model from dropdown
       const model = window.selectedOllamaModel || 'llama3.2:latest';
@@ -1617,38 +1640,81 @@ export default function OllamaChat(config = {}) {
             temperature: currentTemperature,
             top_p: 0.9 // Nucleus sampling for quality
           }
-        })
+        }),
+        signal: undefined // Placeholder for AbortSignal if needed
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to get response from Ollama');
+        throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
       }
 
-      // Handle streaming response
+      // Handle streaming response with timeout protection
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
+      let lineBuffer = '';
+      let lastChunkTime = Date.now();
+      let isStreamDone = false;
+      const CHUNK_TIMEOUT = 30000; // 30 second timeout between chunks
 
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim());
-
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            if (data.message && data.message.content) {
-              const content = data.message.content;
-              fullResponse += content;
-              streamChunk(content);
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            // Process any remaining buffer on completion
+            if (lineBuffer.trim() && !isStreamDone) {
+              try {
+                const data = JSON.parse(lineBuffer.trim());
+                if (data.message && data.message.content && !isStreamDone) {
+                  fullResponse += data.message.content;
+                  streamChunk(data.message.content);
+                  isStreamDone = true;
+                }
+              } catch (e) {
+                console.warn('⚠️ Parse error on final buffer:', lineBuffer.substring(0, 50), '...', e.message);
+              }
             }
-            if (data.done) break;
-          } catch (e) {
-            console.warn('Parse error:', e);
+            break;
           }
+
+          lastChunkTime = Date.now();
+          const chunk = decoder.decode(value);
+          lineBuffer += chunk;
+          
+          // Split into lines but keep incomplete last line in buffer
+          const lines = lineBuffer.split('\n');
+          lineBuffer = lines.pop() || ''; // Last element might be incomplete
+          
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue; // Skip empty lines
+            
+            // Prevent processing after stream is marked done
+            if (isStreamDone) continue;
+            
+            try {
+              const data = JSON.parse(trimmedLine);
+              if (data.message && data.message.content) {
+                const content = data.message.content;
+                fullResponse += content;
+                streamChunk(content);
+              }
+              // Only set done flag on completing the stream, don't break early
+              if (data.done === true) {
+                isStreamDone = true;
+              }
+            } catch (e) {
+              console.warn('⚠️ Parse error on line:', trimmedLine.substring(0, 50), '...', e.message);
+            }
+          }
+        } catch (readError) {
+          if (readError.name === 'AbortError') {
+            console.log('Stream aborted by user');
+            reader.cancel();
+            throw readError;
+          }
+          throw readError;
         }
       }
 
@@ -1678,5 +1744,16 @@ export default function OllamaChat(config = {}) {
 
   // Add ChatUI element to chat container
   chatContainer.get().appendChild(chatInstance.getElement())
+  
+  // Cleanup function to remove event listeners when component is destroyed
+  window.addEventListener('beforeunload', () => {
+    console.log('🧹 Cleaning up event listeners...');
+    // Remove the click event listener from chatList
+    if (chatList && chatList.el) {
+      chatList.el.removeEventListener('click', clickHandler);
+    }
+    // Clear any timeouts or pending operations
+    currentAbortController?.abort();
+  });
 
 }
